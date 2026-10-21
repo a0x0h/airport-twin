@@ -1,0 +1,42 @@
+/* Mirrors src/design/tokens.ts — keep in sync. */
+:root {
+  --sky: #dde4f5;
+  --blue: #2b5cf0;
+  --blue-deep: #1d3fb3;
+  --blue-tint: #e8eefe;
+  --yellow: #f5b82e;
+  --orange: #f0892a;
+  --orange-tint: #fdeedb;
+
+  --ok: #22b866;
+  --ok-tint: #ddf6e8;
+  --warn: #f0a024;
+  --warn-tint: #fdf0d9;
+  --fault: #e5484d;
+  --fault-tint: #fde4e4;
+  --idle: #9aa3b5;
+  --idle-tint: #eef0f4;
+
+  --ink: #151a26;
+  --ink-muted: #6a7286;
+  --ink-faint: #9aa1b2;
+  --line: #e7eaf1;
+  --surface: #ffffff;
+  --surface-sunken: #f3f5fa;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-pill: 999px;
+
+  --shadow-float: 0 1px 2px rgb(21 26 38 / 0.04), 0 8px 24px -6px rgb(29 63 179 / 0.14);
+  --shadow-press: inset 0 1px 2px rgb(21 26 38 / 0.08);
+
+  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --text-xs: 11px;
+  --text-sm: 13px;
+  --text-md: 15px;
+  --text-lg: 19px;
+
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
