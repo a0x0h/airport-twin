@@ -1234,3 +1234,18 @@
     display: none;
   }
 }
+
+/* Seven zones no longer fit the card: the tab row scrolls sideways at every size. */
+.zone-tabs {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.zone-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.zone-tabs button {
+  flex: none;
+  padding: 0 8px;
+}

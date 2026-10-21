@@ -27,7 +27,19 @@ export interface Replication {
   ms: number
 }
 
-export type MetricKey = 'checkinWait' | 'securityWait' | 'process' | 'missedRate' | 'satisfaction' | 'boarded' | 'peakCheckinQueue' | 'peakSecurityQueue'
+export type MetricKey =
+  | 'checkinWait'
+  | 'securityWait'
+  | 'process'
+  | 'missedRate'
+  | 'satisfaction'
+  | 'boarded'
+  | 'peakCheckinQueue'
+  | 'peakSecurityQueue'
+  | 'bagWait'
+  | 'arrJourney'
+  | 'taxiWait'
+  | 'arrSatisfaction'
 
 export const METRICS: { key: MetricKey; label: string; unit: 'time' | 'pct' | 'count'; better: 'lower' | 'higher' }[] = [
   { key: 'checkinWait', label: 'Avg check-in wait', unit: 'time', better: 'lower' },
@@ -38,6 +50,10 @@ export const METRICS: { key: MetricKey; label: string; unit: 'time' | 'pct' | 'c
   { key: 'missedRate', label: 'Missed flights', unit: 'pct', better: 'lower' },
   { key: 'satisfaction', label: 'Satisfaction', unit: 'pct', better: 'higher' },
   { key: 'boarded', label: 'Passengers boarded', unit: 'count', better: 'higher' },
+  { key: 'bagWait', label: 'Arrivals: bag wait', unit: 'time', better: 'lower' },
+  { key: 'arrJourney', label: 'Arrivals: aircraft to exit', unit: 'time', better: 'lower' },
+  { key: 'taxiWait', label: 'Arrivals: taxi wait', unit: 'time', better: 'lower' },
+  { key: 'arrSatisfaction', label: 'Arrivals: mood at exit', unit: 'pct', better: 'higher' },
 ]
 
 /** Coarser movement step for headless runs; identical for both designs, so comparisons stay fair. */
@@ -67,6 +83,10 @@ export function runReplication(job: Job): Replication {
       boarded: s.boarded,
       peakCheckinQueue: Math.max(0, ...s.history.map((x) => x.q)),
       peakSecurityQueue: Math.max(0, ...s.history.map((x) => x.sq)),
+      bagWait: s.bagWaitAvg,
+      arrJourney: s.arrJourneyAvg,
+      taxiWait: s.taxiWaitAvg,
+      arrSatisfaction: s.arrSatisfaction,
     },
     hourly,
     ms: performance.now() - t0,

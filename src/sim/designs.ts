@@ -25,13 +25,26 @@ export interface Design {
   smartDivestFactor: number
   /** Mean boarding-pass scan at the gate, seconds. */
   scanMean: number
+  /** Minutes from on-block to the first bag on the carousel. */
+  firstBagMin: number
+  /** Mean seconds between bags coming up onto the belt. */
+  bagGap: number
+  /** Taxis held in a lot behind the rank when it is full, called forward as it empties (0: they drive on). */
+  taxiLot: number
 }
 
 const today: Design = {
   id: 'today',
   label: 'MHD today',
   fa: 'وضع موجود',
-  changes: ['5 staffed check-in counters', '3 conventional security lanes', '2 search officers', 'Agent scans boarding passes (≈ 7 s)'],
+  changes: [
+    '5 staffed check-in counters',
+    '3 conventional security lanes',
+    '2 search officers',
+    'Agent scans boarding passes (≈ 7 s)',
+    'First bag ≈ 14 min after landing',
+    'Taxi rank holds 6 cars; taxis finding it full drive on',
+  ],
   counters: todayCounters,
   lanes: todayLanes,
   openCounters: ['ck-11', 'ck-12', 'ck-13', 'ck-14'],
@@ -40,6 +53,9 @@ const today: Design = {
   bagDropFactor: 1,
   smartDivestFactor: 1,
   scanMean: 7,
+  firstBagMin: 14,
+  bagGap: 6,
+  taxiLot: 0,
 }
 
 const proposedCounters = [
@@ -57,6 +73,8 @@ const proposed: Design = {
     '4 smart security lanes, tray return automated (divest −25%)',
     '3 search officers',
     'Self-boarding e-gates (≈ 3.5 s per passenger)',
+    'Bag room staffed to the schedule: first bag ≈ 9 min, faster unloading',
+    'Taxi holding lot for 18 cars, called up as the rank empties',
   ],
   counters: proposedCounters,
   // Four lanes on a 3.6 m pitch fit the same room; search mats sit a little closer.
@@ -67,6 +85,9 @@ const proposed: Design = {
   bagDropFactor: 0.5,
   smartDivestFactor: 0.75,
   scanMean: 3.5,
+  firstBagMin: 9,
+  bagGap: 4,
+  taxiLot: 18,
 }
 
 export const designs: Record<DesignId, Design> = { today, proposed }

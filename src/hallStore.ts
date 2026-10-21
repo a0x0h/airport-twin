@@ -9,15 +9,16 @@ export type HallSelection =
   | { kind: 'pax'; id: number }
   | { kind: 'aircraft'; id: number }
   | { kind: 'gate'; id: number }
+  | { kind: 'carousel'; id: number }
   | null
 
 /** Zone the overview is showing; also frames the camera. */
-export type Zone = 'terminal' | 'landside' | 'checkin' | 'security' | 'gates' | 'airside'
+export type Zone = 'terminal' | 'landside' | 'checkin' | 'security' | 'gates' | 'arrivals' | 'airside'
 
 /** 1200× runs a day in 72 s, a week in under 9 minutes. */
 export const SPEEDS = [1, 5, 20, 60, 300, 1200] as const
 
-type TunableKey = 'arrivalsPerHour' | 'serviceMean' | 'divestMean' | 'alarmRate' | 'searchMean'
+type TunableKey = 'arrivalsPerHour' | 'serviceMean' | 'divestMean' | 'alarmRate' | 'searchMean' | 'taxisPerHour'
 
 /**
  * Interventions are logged with the simulated instant they happened. Because
@@ -118,6 +119,7 @@ const pick = (p: HallParams): HallStore['params'] => ({
   divestMean: p.divestMean,
   alarmRate: p.alarmRate,
   searchMean: p.searchMean,
+  taxisPerHour: p.taxisPerHour,
   seed: p.seed,
   officers: p.officers,
   dailyProfile: p.dailyProfile,
@@ -237,6 +239,7 @@ export const useHall = create<HallStore>((set, get) => {
         divestMean: params.divestMean,
         alarmRate: params.alarmRate,
         searchMean: params.searchMean,
+        taxisPerHour: params.taxisPerHour,
         seed: params.seed,
       })
       const next = new HallSim(runParams)

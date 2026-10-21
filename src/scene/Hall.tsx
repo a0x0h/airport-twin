@@ -16,9 +16,11 @@ import { BagDrop, CheckInCounter, FlightBoard, Planter, QueueLane, SeatingRow, t
 import { Block, Print, Rod } from '../kit/primitives'
 import { aircraftAt, AIRCRAFT_LENGTH, APRON, bridgeRoot, CAFE, CONC, LIFT_AT, PRAYER, doorPoint, gates as gateSpots, NOSE_Z, REBOOK, SHOP, STAND_X, TAXIWAY_Z, type AircraftPose, type GateSpot } from '../sim/airside'
 import { DOOR, EXIT, HALL, SEC_EXIT, queueOrigin, queueSpec, queueYaw, SEC, secQueueOrigin, secQueueSpec, secQueueYaw } from '../sim/hallLayout'
-import { DAY_START, hourOfDay, type Counter, type Lane, type Officer, type Pax } from '../sim/hallSim'
+import { DAY_START, hourOfDay, type Carousel, type Counter, type Lane, type Officer, type Pax, type Taxi } from '../sim/hallSim'
 import { DayLight, LightPools, sky, useNightGlow } from './daylight'
-import { BAYS, CANOPY, CANOPY_COLUMNS, CURB_Z, DROP_Z, PLAZA, ROAD, TAXI_RANK, THROUGH_Z, vehiclePose, type Vehicle } from '../sim/landside'
+import { BAYS, CANOPY, CANOPY_COLUMNS, CAR_PARK, CURB_Z, DROP_Z, PICKUP_BAYS, PLAZA, rankX, ROAD, THROUGH_Z, vehiclePose, type Vehicle } from '../sim/landside'
+import { ARR, ARR_AXIS, ARR_DOOR, ARR_ENTRY, PARTITION_Z, RAIL } from '../sim/arrivals'
+import { BaggageCarousel, BarrierRail, CAROUSEL_TOP, CurbSign, SlidingDoors, Suitcase } from '../kit/objects/arrivals'
 import { Brackets, canvasProps, frameBox, HOME_DIR, Line, overlayInsets, resetAngle } from './shared'
 
 const simHour = () => hourOfDay(useHall.getState().sim.t)
@@ -414,34 +416,42 @@ function Forecourt() {
         </group>
       ))}
 
-      {/* taxi rank for arriving flights */}
-      {TAXI_RANK.map(([x, z]) => (
-        <group key={x} position={[x, -0.2, z]} rotation={[0, -Math.PI / 2, 0]}>
-          <Car taxi color={palette.yellow} />
+      {/* arrivals curb: pick-up bays, taxi rank queue, car park path */}
+      <group position={[0, -0.19, 0]}>
+        {PICKUP_BAYS.map((x) => (
+          <Line key={x} from={[x - 2.6, DROP_Z - 1.2]} to={[x + 2.6, DROP_Z - 1.2]} width={0.1} color={palette.blue} />
+        ))}
+        {Array.from({ length: 6 }, (_, i) => (
+          <Line key={`r${i}`} from={[rankX(i) - 2.5, DROP_Z - 1.2]} to={[rankX(i) + 2.5, DROP_Z - 1.2]} width={0.1} color={palette.yellow} />
+        ))}
+      </group>
+      <group position={[(PICKUP_BAYS[0] + PICKUP_BAYS[1]) / 2, 0, CURB_Z - 0.5]}>
+        <CurbSign label="Pick-up" fa="سوار شدن" color={palette.blue} ink="#fff" />
+      </group>
+      <group position={[rankX(0) - 1.6, 0, CURB_Z - 0.45]}>
+        <CurbSign label="TAXI" fa="تاکسی" />
+      </group>
+      {/* taxi queue: two lanes on the curb, rails between and behind */}
+      <group position={[36.2, 0, 15.7]}>
+        <BarrierRail length={8.4} height={0.95} glazed={false} />
+      </group>
+      <group position={[35.0, 0, 14.7]}>
+        <BarrierRail length={9.0} height={0.95} glazed={false} />
+      </group>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[40.1, 0.004, 15.45]} material={surface('#e2dccd')} receiveShadow>
+        <planeGeometry args={[10.4, 2.0]} />
+      </mesh>
+      <group position={[CAR_PARK[0] - 0.4, 0, CAR_PARK[1] - 1.9]}>
+        <CurbSign label="Parking" fa="پارکینگ" glyph="P" color={palette.blue} ink="#fff" />
+      </group>
+      {[
+        [ARR.minX + 2.2, 9.4],
+        [ARR.maxX - 2.4, 9.4],
+      ].map(([x, z]) => (
+        <group key={x} position={[x, 0, z]}>
+          <PalmPlanter height={2.4} />
         </group>
       ))}
-      <Person look={{ role: 'passenger', shirt: '#4a5570', skin: palette.skin[2] }} position={[TAXI_RANK[0][0] + 1, 0, CURB_Z - 0.8]} rotation={[0, Math.PI, 0]} />
-      <Person look={{ role: 'passenger', shirt: palette.shell, pants: '#4a5570', skin: palette.skin[1] }} position={[TAXI_RANK[1][0], 0, CURB_Z - 0.9]} rotation={[0, 2.6, 0]} />
-      <group position={[TAXI_RANK[0][0] + 3, 0, CURB_Z - 0.6]}>
-        <Rod radius={0.04} length={2.6} position={[0, 1.3, 0]} color={palette.steel} />
-        <Block size={[1.2, 0.4, 0.08]} position={[0, 2.5, 0]} color={palette.yellow} />
-        <Print
-          width={1.14}
-          height={0.34}
-          position={[0, 2.5, 0.045]}
-          draw={(ctx, w, h) => {
-            ctx.fillStyle = palette.yellow
-            ctx.fillRect(0, 0, w, h)
-            ctx.fillStyle = palette.ink
-            ctx.textBaseline = 'middle'
-            ctx.font = `800 ${h * 0.46}px Inter, sans-serif`
-            ctx.fillText('TAXI', h * 0.25, h * 0.55)
-            ctx.textAlign = 'right'
-            ctx.font = FA(h * 0.5)
-            ctx.fillText('تاکسی', w - h * 0.25, h * 0.55)
-          }}
-        />
-      </group>
     </group>
   )
 }
@@ -556,7 +566,7 @@ function Building() {
       {walls !== 'off' && <GlassWall from={minX} to={maxX} z={minZ} gaps={[[SEC_EXIT[0] - 1.3, SEC_EXIT[0] + 1.3]]} height={walls === 'full' ? 3.4 : 1.3} glow={0.3} />}
       {/* concourse: apron façade, landside façade past the hall, end walls */}
       <GlassWall from={CONC.minX} to={CONC.maxX} z={CONC.minZ} />
-      {walls !== 'off' && <GlassWall from={maxX} to={CONC.maxX} z={CONC.maxZ} height={walls === 'full' ? FACADE_H : 1.3} />}
+      {walls !== 'off' && <GlassWall from={maxX} to={CONC.maxX} z={CONC.maxZ} gaps={[[ARR_ENTRY[0] - 1.4, ARR_ENTRY[0] + 1.4]]} height={walls === 'full' ? FACADE_H : 1.3} />}
       <Wall from={[CONC.minX, CONC.minZ]} to={[CONC.minX, CONC.maxZ]} h={FACADE_H} />
       <Wall from={[CONC.maxX, CONC.minZ]} to={[CONC.maxX, CONC.maxZ]} h={FACADE_H} />
 
@@ -598,6 +608,193 @@ function Building() {
 
       <LightPools spots={indoorPools} radius={3.2} color="#ffd9a8" strength={0.22} />
     </group>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* Arrivals hall                                                       */
+/* ------------------------------------------------------------------ */
+
+function ArrivalsHall() {
+  const walls = useHall((st) => st.layers.walls)
+  const { minX, maxX, minZ, maxZ } = ARR
+  const doorHalf = 1.5
+  const pools = useMemo(() => {
+    const out: [number, number][] = []
+    for (let x = minX + 3; x < maxX; x += 6) for (let z = minZ + 3; z < maxZ; z += 5) out.push([x, z])
+    return out
+  }, [minX, maxX, minZ, maxZ])
+  return (
+    <group>
+      <Block size={[maxX - minX + 0.6, 0.2, maxZ - minZ + 0.6]} radius={0.05} position={[(minX + maxX) / 2, -0.1, (minZ + maxZ) / 2]} color={palette.slab} />
+      {/* greeters hall floor is landside stone, like the plaza */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[(minX + maxX) / 2, 0.002, (PARTITION_Z + maxZ) / 2]} material={surface('#f1ede4')} receiveShadow>
+        <planeGeometry args={[maxX - minX, maxZ - PARTITION_Z]} />
+      </mesh>
+      {/* walking axis: concourse door → customs */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[ARR_AXIS, 0.003, (minZ + PARTITION_Z) / 2]} material={surface('#e6ecfa')} receiveShadow>
+        <planeGeometry args={[2.4, PARTITION_Z - minZ]} />
+      </mesh>
+
+      {/* side walls (cut to rail height, like the halls) */}
+      <Wall from={[minX, minZ]} to={[minX, maxZ]} />
+      <Wall from={[maxX, minZ]} to={[maxX, maxZ]} />
+
+      {/* customs partition with sliding exit doors */}
+      {walls === 'off' ? (
+        <Line from={[minX, PARTITION_Z]} to={[maxX, PARTITION_Z]} width={0.14} color={palette.panel} y={0.01} />
+      ) : (
+        <>
+          <GlassWall from={minX} to={maxX} z={PARTITION_Z} gaps={[[ARR_AXIS - 1.6, ARR_AXIS + 1.6]]} height={walls === 'full' ? 2.9 : 1.3} glow={0.25} />
+          <group position={[ARR_AXIS, 0, PARTITION_Z]}>
+            <SlidingDoors width={2.8} />
+          </group>
+        </>
+      )}
+      <Fascia x={ARR_AXIS} z={PARTITION_Z + 0.35} width={7} title="Exit" sub="Nothing to declare" fa="خروج" />
+      <Fascia x={ARR_AXIS} z={minZ + 0.6} width={9} title="Baggage claim" sub="Belts 1 – 2" fa="تحویل بار" />
+
+      {/* greeter rails either side of the exit corridor */}
+      {[RAIL.x0, RAIL.x1].map((x) => (
+        <group key={x} position={[x, 0, RAIL.z0]} rotation={[0, -Math.PI / 2, 0]}>
+          <BarrierRail length={RAIL.z1 - RAIL.z0} />
+        </group>
+      ))}
+
+      {/* front façade */}
+      {walls === 'full' ? (
+        <GlassWall from={minX} to={maxX} z={maxZ} gaps={[[ARR_DOOR[0] - doorHalf - 0.3, ARR_DOOR[0] + doorHalf + 0.3]]} />
+      ) : walls === 'low' ? (
+        <>
+          <Wall from={[minX, maxZ]} to={[ARR_DOOR[0] - doorHalf - 0.22, maxZ]} />
+          <Wall from={[ARR_DOOR[0] + doorHalf + 0.22, maxZ]} to={[maxX, maxZ]} />
+        </>
+      ) : (
+        <Line from={[minX, maxZ]} to={[maxX, maxZ]} width={0.18} color={palette.panel} y={0.01} />
+      )}
+      {walls !== 'off' && (
+        <>
+          <Portal at={ARR_DOOR} yaw={0} width={2 * doorHalf + 0.4} label="Arrivals" fa="ورودی" />
+          <Portal at={[ARR_ENTRY[0], ARR_ENTRY[1] + 0.2]} yaw={0} width={2.6} label="Baggage claim" fa="تحویل بار" />
+        </>
+      )}
+
+      {/* decor */}
+      {[
+        [minX + 0.9, minZ + 0.9],
+        [maxX - 0.9, minZ + 0.9],
+        [minX + 0.9, PARTITION_Z - 0.8],
+        [maxX - 0.9, PARTITION_Z - 0.8],
+      ].map(([x, z]) => (
+        <group key={`${x}:${z}`} position={[x, 0, z]}>
+          <Planter />
+        </group>
+      ))}
+      {[19.2, 22.4].map((x) => (
+        <group key={x} position={[x, 0, 4.4]}>
+          <SeatingRow state={x < 20 ? 'occupied' : 'empty'} />
+        </group>
+      ))}
+      <group position={[maxX - 1.6, 0, 4.0]}>
+        <PalmPlanter height={2.2} />
+      </group>
+      <group position={[minX + 1.4, 0, 7.0]}>
+        <Lightbox variant={1} />
+      </group>
+      <LightPools spots={pools} radius={3.2} color="#ffd9a8" strength={0.22} />
+    </group>
+  )
+}
+
+function CarouselView({ index }: { index: number }) {
+  useHall((st) => st.version)
+  const sim = useHall((st) => st.sim)
+  const c: Carousel = sim.carousels[index]
+  const { ref, selected, hovered, handlers } = useSelectable('carousel', index)
+  const running = c.belt.length > 0 || c.spots.some((v) => v !== null)
+  const [x, z] = c.spot.at
+  // Bags come up at the end away from the walking axis.
+  const yaw = x < ARR_AXIS ? 0 : Math.PI
+  return (
+    <group ref={ref} position={[x, 0, z]} {...handlers}>
+      <group rotation={[0, yaw, 0]}>
+        <BaggageCarousel state={running ? 'running' : 'idle'} number={c.spot.number} flight={c.flight ?? ''} from={c.from} />
+      </group>
+      {(selected || hovered) && <Brackets w={10.6} d={5.0} color={selected ? palette.blue : '#a9bcf6'} />}
+      {(selected || hovered) && <Chip y={3.75} code={`Belt ${c.spot.number}`} text={c.flight ? `${c.flight} · ${c.belt.length} on belt` : 'Idle'} solid={selected} />}
+    </group>
+  )
+}
+
+/** Bags riding a carousel; positions come from the belt every frame. */
+function CarouselBags({ index }: { index: number }) {
+  useHall((st) => st.version)
+  const sim = useHall((st) => st.sim)
+  const ids = sim.carousels[index].belt
+  const refs = useRef(new Map<number, THREE.Group>())
+  useFrame(() => {
+    for (const b of sim.bagPoses(index)) {
+      const g = refs.current.get(b.id)
+      if (!g) continue
+      g.position.set(b.x, CAROUSEL_TOP, b.z)
+      g.rotation.y = b.yaw + Math.PI / 2
+    }
+  })
+  return (
+    <>
+      {ids.map((id) => (
+        <group
+          key={`${sim.runId}:${id}`}
+          ref={(g) => {
+            if (g) refs.current.set(id, g)
+            else refs.current.delete(id)
+          }}
+        >
+          <Suitcase color={sim.bags.get(id)?.color} />
+        </group>
+      ))}
+    </>
+  )
+}
+
+function Carousels() {
+  const sim = useHall((st) => st.sim)
+  return (
+    <>
+      {sim.carousels.map((c, i) => (
+        <group key={`${sim.runId}:${c.spot.id}`}>
+          <CarouselView index={i} />
+          <CarouselBags index={i} />
+        </group>
+      ))}
+    </>
+  )
+}
+
+function TaxiView({ x }: { x: Taxi }) {
+  const ref = useRef<THREE.Group>(null)
+  useFrame(() => {
+    const g = ref.current
+    if (!g) return
+    g.position.set(x.x, -0.2, x.z)
+    g.rotation.y = x.yaw
+  })
+  return (
+    <group ref={ref} position={[x.x, -0.2, x.z]} rotation={[0, x.yaw, 0]}>
+      <Car taxi color={palette.yellow} />
+    </group>
+  )
+}
+
+function Taxis() {
+  useHall((st) => st.version)
+  const sim = useHall((st) => st.sim)
+  return (
+    <>
+      {sim.taxis.map((x) => (
+        <TaxiView key={`${sim.runId}:${x.id}`} x={x} />
+      ))}
+    </>
   )
 }
 
@@ -786,7 +983,7 @@ function Bridges() {
 
 const nodes = new Map<string, THREE.Object3D>()
 
-function useSelectable(kind: 'counter' | 'lane' | 'gate', id: string | number) {
+function useSelectable(kind: 'counter' | 'lane' | 'gate' | 'carousel', id: string | number) {
   const selected = useHall((s) => s.selected?.kind === kind && s.selected.id === id)
   const hovered = useHall((s) => s.hovered?.kind === kind && s.hovered.id === id)
   const select = useHall((s) => s.select)
@@ -1053,6 +1250,23 @@ export const phaseLabel: Record<Pax['phase'], string> = {
   cafeService: 'Ordering coffee',
   toCafeSeat: 'Finding a table',
   cafeSeated: 'Having coffee',
+  deplaning: 'Leaving the aircraft',
+  toClaim: 'Walking to baggage claim',
+  claimWait: 'Waiting for their bag',
+  claimPick: 'Lifting the bag off',
+  toExit: 'Walking out through customs',
+  waitGreeter: 'Looking for their greeter',
+  toMeet: 'Spotted their greeter',
+  meeting: 'Greeting',
+  toCarPark: 'Walking to the car park',
+  toTaxiQueue: 'Heading for the taxi rank',
+  taxiQueue: 'Queuing for a taxi',
+  toTaxi: 'Walking to the taxi',
+  taxiBoard: 'Loading the taxi',
+  toPickup: 'Walking to the pick-up bay',
+  curbWait: 'Waiting for their ride',
+  toRail: 'Walking to the arrivals rail',
+  greeting: 'Waiting at the rail',
 }
 
 const ringGeo = new THREE.RingGeometry(0.34, 0.42, 40)
@@ -1293,6 +1507,7 @@ export const zoneBoxes: Record<Zone, THREE.Box3> = {
   checkin: box(HALL.minX, HALL.minZ, HALL.maxX, HALL.maxZ),
   security: box(SEC.minX, SEC.minZ, SEC.maxX, SEC.maxZ),
   gates: box(CONC.minX, CONC.minZ, CONC.maxX, CONC.maxZ),
+  arrivals: box(ARR.minX - 1, ARR.minZ, PLAZA.maxX - 1, CURB_Z + 2.6, 3),
   airside: box(-40, TAXIWAY_Z - 4, 110, CONC.minZ, 12),
 }
 
@@ -1328,7 +1543,7 @@ function Director() {
   useEffect(() => {
     const c = ref.current
     if (!c || !selected) return
-    if (selected.kind === 'counter' || selected.kind === 'lane' || selected.kind === 'gate') {
+    if (selected.kind === 'counter' || selected.kind === 'lane' || selected.kind === 'gate' || selected.kind === 'carousel') {
       const n = nodes.get(`${selected.kind}:${selected.id}`)
       if (n) frameBox(c, camera, size, new THREE.Box3().setFromObject(n).expandByScalar(0.6), { tight: true, maxZoom: 90 })
     } else if (selected.kind === 'pax') {
@@ -1425,6 +1640,9 @@ export function Hall() {
       <Forecourt />
       <Traffic />
       <Building />
+      <ArrivalsHall />
+      <Carousels />
+      <Taxis />
       <LiveBoard />
       <group position={[queueOrigin[0], 0, queueOrigin[1]]} rotation={[0, queueYaw, 0]}>
         <QueueLane {...queueSpec} />

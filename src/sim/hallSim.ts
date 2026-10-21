@@ -1,6 +1,6 @@
 import { palette } from '../design/tokens'
 import type { PersonLook } from '../kit/objects/Person'
-import { pickFlight, type Flight } from '../data/flights'
+import { pickFlight, schedule, type Flight } from '../data/flights'
 import type { XZ } from '../kit/queueGeometry'
 import {
   BELT_SPEED,
@@ -23,10 +23,44 @@ import {
   type LaneSpot,
 } from './hallLayout'
 import { Polyline } from './path'
-import { BOARDING_OPENS, CAFE, CHECKIN_CLOSES, concourseRoute, PRAYER, DOOR_Y, GATE_CLOSES, gates as gateSpots, nearestAisle, REBOOK, SHOP, type GateSpot } from './airside'
+import { BOARDING_OPENS, CAFE, CHECKIN_CLOSES, concourseRoute, PRAYER, doorPoint, DOOR_Y, GATE_CLOSES, gates as gateSpots, nearestAisle, REBOOK, SHOP, type GateSpot } from './airside'
 import { Rng, streamSeed } from './rng'
 import { designs, type DesignId } from './designs'
-import { alightPoint, BAYS, routeCurbToDoor, VEHICLE_SPAN, type Vehicle } from './landside'
+import {
+  alightPoint,
+  BAYS,
+  CAR_PARK,
+  DROP_Z,
+  PICKUP_BAY0,
+  PICKUP_BAYS,
+  RANK_SLOTS,
+  rankX,
+  routeCurbToDoor,
+  TAXI_DOOR,
+  TAXI_QUEUE,
+  taxiArriveRoute,
+  taxiLeaveRoute,
+  VEHICLE_SPAN,
+  type Vehicle,
+} from './landside'
+import {
+  ARR_AXIS,
+  bagPose,
+  CAROUSEL,
+  carousels as carouselSpots,
+  greeterBackRow,
+  greeterSpots,
+  loopGap,
+  MEET_Z,
+  outThroughDoor,
+  routeClaimToExit,
+  routeDeplane,
+  routeGreeterIn,
+  routeStraightThrough,
+  routeToClaim,
+  type CarouselSpot,
+  type GreeterSpot,
+} from './arrivals'
 
 /**
  * Terminal simulation: check-in hall feeding a security checkpoint.
@@ -52,6 +86,14 @@ import { alightPoint, BAYS, routeCurbToDoor, VEHICLE_SPAN, type Vehicle } from '
  *   bay under the canopy and walks to the end of the check-in queue.
  * Dwell — with time to spare, passengers choose the duty-free shop, the
  *   café (a visible FIFO queue, two baristas, then a table) or the prayer room.
+ *
+ * Arrivals — every departure's aircraft first brings a load in. Passengers
+ *   leave through the jet bridge, walk the concourse to the baggage hall and
+ *   wait at a carousel until their own bag passes them (bags come up in random
+ *   order after the first-bag delay). Through customs, some are met by a
+ *   greeter waiting at the rail and walk to the car park together; the rest
+ *   are collected by a car at a pick-up bay or join the taxi rank. The rank
+ *   is a double-ended queue: taxis wait for passengers, or passengers for taxis.
  *
  * Demand follows the clock: a non-homogeneous Poisson process (thinning) with
  * an hourly profile and a day-of-week factor, or a constant rate.
@@ -80,7 +122,16 @@ const MOOD_RATE: Partial<Record<string, number>> = {
   cafeSeated: 1 / 1500,
   shopping: 1 / 2400,
   seated: 1 / 4800,
+  claimWait: -1 / 2400,
+  waitGreeter: -1 / 1800,
+  taxiQueue: -1 / 1500,
+  curbWait: -1 / 2400,
 }
+/** Deplaning starts once the bridge is docked, 48 min before the aircraft's next departure (on-block at −54). */
+const ON_BLOCK_LEAD = 54 * 60
+const DEPLANE_LEAD = 48 * 60
+/** The inbound load and its greeters are known this long before deplaning starts. */
+const INBOUND_NOTICE = 30 * 60
 export const DAY_START = 6 * 3600
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -103,6 +154,8 @@ export interface HallParams {
   reclaimMean: number
   bagCheckRate: number
   officers: number
+  /** Taxis arriving at the rank per hour (before the design's dispatch factor). */
+  taxisPerHour: number
   seed: number
   openCounters: string[]
   openLanes: string[]
@@ -126,6 +179,7 @@ export const defaultParams: HallParams = {
   reclaimMean: 32,
   bagCheckRate: 0.08,
   officers: 2,
+  taxisPerHour: 60,
   seed: 2026,
   openCounters: ['ck-11', 'ck-12', 'ck-13', 'ck-14'],
   openLanes: ['sec-1', 'sec-2'],
@@ -168,6 +222,25 @@ export type PaxPhase =
   | 'cafeService'
   | 'toCafeSeat'
   | 'cafeSeated'
+  // arrivals
+  | 'deplaning'
+  | 'toClaim'
+  | 'claimWait'
+  | 'claimPick'
+  | 'toExit'
+  | 'waitGreeter'
+  | 'toMeet'
+  | 'meeting'
+  | 'toCarPark'
+  | 'toTaxiQueue'
+  | 'taxiQueue'
+  | 'toTaxi'
+  | 'taxiBoard'
+  | 'toPickup'
+  | 'curbWait'
+  // greeters
+  | 'toRail'
+  | 'greeting'
 
 export interface Pax {
   id: number
@@ -216,6 +289,118 @@ export interface Pax {
   cafeUntil: number
   /** Mood 0–1: sours while queuing or held, recovers while relaxing. */
   mood: number
+  /** Departing passenger, arriving passenger, or someone meeting an arrival. */
+  kind: 'dep' | 'arr' | 'greeter'
+  carousel: number | null
+  claimSpot: number | null
+  bagId: number | null
+  /** Arriving passenger ↔ their greeter. */
+  partner: number | null
+  /** How an arrival leaves: met and walks to the car park, a pick-up car, or the taxi rank. */
+  exitMode: 'park' | 'pickup' | 'taxi' | null
+  /** Reached the carousel; joined the taxi queue (waits are measured from these). */
+  claimAt: number | null
+  taxiJoinAt: number | null
+  greeterSpot: { back: boolean; index: number } | null
+}
+
+/** Fields every new person starts from; each process fills in its own. */
+const paxDefaults = () => ({
+  s: 0,
+  route: null,
+  d: 0,
+  x: 0,
+  z: 0,
+  yaw: 0,
+  y: 0,
+  hasBag: true,
+  calledAt: null,
+  serviceStart: null,
+  serviceDur: null,
+  counter: null,
+  secJoinAt: null,
+  secCalledAt: null,
+  lane: null,
+  alarm: null,
+  reclaimSpot: null,
+  holdSince: 0,
+  actStart: null,
+  actDur: null,
+  missed: false,
+  spot: null,
+  shopLeaveAt: Infinity,
+  atGateAt: null,
+  queueJoinAt: 0,
+  dwell: null,
+  cafeServer: null,
+  cafeSeat: null,
+  cafeUntil: 0,
+  carousel: null,
+  claimSpot: null,
+  bagId: null,
+  partner: null,
+  exitMode: null,
+  claimAt: null,
+  taxiJoinAt: null,
+  greeterSpot: null,
+})
+
+export interface Bag {
+  id: number
+  pax: number
+  carousel: number
+  color: string
+  /** When it came up onto the belt; NaN while still in the bag room. */
+  loadAt: number
+}
+
+export interface Carousel {
+  spot: CarouselSpot
+  /** Flight currently delivering to this belt. */
+  flight: string | null
+  from: string
+  onBlock: number
+  /** Checked bags on that flight, and how many have come up so far. */
+  total: number
+  delivered: number
+  firstBagAt: number | null
+  /** Bags circulating on the belt. */
+  belt: number[]
+  spots: (number | null)[]
+}
+
+export interface Taxi {
+  id: number
+  x: number
+  z: number
+  yaw: number
+  state: 'arriving' | 'ranked' | 'loading' | 'leaving'
+  /** Place in the rank; slot 0 loads. */
+  slot: number
+  route: Polyline | null
+  d: number
+  speed: number
+  pax: number | null
+  rankedAt: number
+}
+
+interface Manifest {
+  id: number
+  look: PersonLook
+  speed: number
+  mood: number
+  exit: 'park' | 'pickup' | 'taxi'
+  greeter: number | null
+  bagId: number | null
+}
+
+interface InboundFlight {
+  id: number
+  flight: Flight
+  carousel: number
+  onBlock: number
+  manifest: Manifest[]
+  next: number
 }
 
 export interface Cafe {
@@ -304,7 +489,24 @@ export interface Tray {
 interface SimEvent {
   t: number
   seq: number
-  kind: 'arrival' | 'serviceEnd' | 'divestEnd' | 'searchEnd' | 'reclaimEnd' | 'scanEnd' | 'rebookEnd' | 'cafeEnd'
+  kind:
+    | 'arrival'
+    | 'serviceEnd'
+    | 'divestEnd'
+    | 'searchEnd'
+    | 'reclaimEnd'
+    | 'scanEnd'
+    | 'rebookEnd'
+    | 'cafeEnd'
+    | 'inbound'
+    | 'deplane'
+    | 'greeterArrive'
+    | 'bagLoad'
+    | 'pickEnd'
+    | 'meetEnd'
+    | 'curbPickup'
+    | 'taxiArrive'
+    | 'taxiBoardEnd'
   ref?: number
 }
 
@@ -360,6 +562,9 @@ export interface Sample {
   t: number
   q: number
   sq: number
+  /** Taxi queue, and arrivals waiting at the carousels. */
+  tq: number
+  ac: number
 }
 
 export interface HallStats {
@@ -412,6 +617,31 @@ export interface HallStats {
   satisfaction: number
   /** Average mood of passengers in the terminal right now. */
   moodNow: number
+
+  /** Arriving passengers off aircraft since the start. */
+  landed: number
+  arrInside: number
+  atCarousels: number
+  bagsOnBelts: number
+  /** At the carousel until their own bag is in hand. */
+  bagWaitAvg: number
+  /** Aircraft door to the customs exit. */
+  arrJourneyAvg: number
+  arrivalsOut: number
+  taxiQueue: number
+  /** Passenger wait in the taxi queue. */
+  taxiWaitAvg: number
+  taxisRanked: number
+  /** Taxi wait at the rank before getting a fare. */
+  taxiIdleAvg: number
+  /** Taxis that found the rank full and drove on. */
+  taxisTurned: number
+  /** Taxis waiting in the holding lot (proposed design). */
+  taxisInLot: number
+  greetersWaiting: number
+  pickupsWaiting: number
+  /** Average mood of arrivals as they leave the airport. */
+  arrSatisfaction: number
   history: Sample[]
 }
 
@@ -438,6 +668,12 @@ export class HallSim {
   readonly flights = new Map<string, FlightRecord>()
   readonly vehicles: Vehicle[] = []
   readonly cafe: Cafe = { queue: [], servers: CAFE.servers.map(() => null), seats: CAFE.seats.map(() => null), served: 0 }
+  readonly carousels: Carousel[] = carouselSpots.map((spot) => ({ spot, flight: null, from: '', onBlock: 0, total: 0, delivered: 0, firstBagAt: null, belt: [], spots: spot.spots.map(() => null) }))
+  readonly bags = new Map<number, Bag>()
+  readonly taxis: Taxi[] = []
+  readonly taxiQueue: number[] = []
+  readonly greeterSpots: (number | null)[] = greeterSpots.map(() => null)
+  readonly greeterBack: (number | null)[] = greeterBackRow.map(() => null)
 
   private cal = new Calendar()
   private rngArrive: Rng
@@ -445,10 +681,20 @@ export class HallSim {
   private rngLook: Rng
   private rngSec: Rng
   private rngCurb: Rng
+  private rngIn: Rng
+  private rngTaxi: Rng
+  private inboundSeq = 0
+  private inboundCount = 0
+  private readonly inbound = new Map<number, InboundFlight>()
+  private readonly greeterPlan = new Map<number, { pax: number; look: PersonLook; flight: Flight; flightKey: string; onBlock: number }>()
+  private nextBag = 1
+  private nextTaxi = 1
+  private pickupFree = PICKUP_BAYS.map(() => 0)
   private nextVehicle = 1
   private nextBay = 0
   private dropTimes: number[] = []
-  private taxis = 0
+  private taxiDrops = 0
+  private drops = 0
   private acc = 0
   private nextId = 1
   private nextOfficer = 1
@@ -479,6 +725,19 @@ export class HallSim {
   private rebookIndex = 0
   private officerTime = 0
   private officerBusy = 0
+  private landed = 0
+  private bagWaitSum = 0
+  private bagWaitCount = 0
+  private arrJourneySum = 0
+  private arrJourneys = 0
+  private arrivalsOut = 0
+  private arrMoodSum = 0
+  private taxiWaitSum = 0
+  private taxiWaitCount = 0
+  private taxiIdleSum = 0
+  private taxiIdleCount = 0
+  private taxisTurned = 0
+  private taxiLot = 0
   history: Sample[] = []
   private nextSample = 0
 
@@ -490,6 +749,8 @@ export class HallSim {
     this.rngLook = new Rng(streamSeed(params.seed, 3))
     this.rngSec = new Rng(streamSeed(params.seed, 4))
     this.rngCurb = new Rng(streamSeed(params.seed, 5))
+    this.rngIn = new Rng(streamSeed(params.seed, 6))
+    this.rngTaxi = new Rng(streamSeed(params.seed, 7))
     const design = designs[params.design ?? 'today']
     this.counters = design.counters.map((spot) => ({
       spot,
@@ -530,6 +791,12 @@ export class HallSim {
     }))
     this.setOfficers(params.officers)
     this.scheduleArrival()
+    // The rank opens with a few taxis already waiting.
+    for (let slot = 0; slot < 4; slot++) {
+      this.taxis.push({ id: this.nextTaxi++, x: rankX(slot), z: DROP_Z, yaw: -Math.PI / 2, state: 'ranked', slot, route: null, d: 0, speed: 0, pax: null, rankedAt: 0 })
+    }
+    this.scheduleTaxi()
+    this.scheduleInbound()
   }
 
   /* ---------------- clock & demand ---------------- */
@@ -568,13 +835,16 @@ export class HallSim {
     this.vehicles.push({
       id: this.nextVehicle++,
       kind: taxi ? 'taxi' : 'car',
+      purpose: 'drop',
       color: taxi ? '#f5b82e' : colours[Math.floor(this.rngCurb.next() * colours.length)],
       bay: this.nextBay,
       ta: t,
     })
     this.nextBay = (this.nextBay + 1) % BAYS.length
-    if (taxi) this.taxis++
-    while (this.vehicles.length && this.vehicles[0].ta + VEHICLE_SPAN.after < this.t) this.vehicles.shift()
+    this.drops++
+    if (taxi) this.taxiDrops++
+    // Pick-ups are booked out of order, so sweep the whole list.
+    for (let i = this.vehicles.length - 1; i >= 0; i--) if (this.vehicles[i].ta + VEHICLE_SPAN.after < this.t) this.vehicles.splice(i, 1)
   }
 
   /** Advance simulated time by `dt` seconds. */
@@ -626,6 +896,35 @@ export class HallSim {
           this.pax.delete(e.ref!)
           this.version++
           break
+        case 'inbound':
+          this.onInbound(e.ref!)
+          break
+        case 'deplane':
+          this.onDeplane(e.ref!)
+          break
+        case 'greeterArrive':
+          this.spawnGreeter(e.ref!)
+          break
+        case 'bagLoad':
+          this.onBagLoad(e.ref!)
+          break
+        case 'pickEnd':
+          this.onPickEnd(e.ref!)
+          break
+        case 'meetEnd':
+          this.onMeetEnd(e.ref!)
+          break
+        case 'curbPickup': {
+          const p = this.pax.get(e.ref!)
+          if (p) this.leaveAirport(p)
+          break
+        }
+        case 'taxiArrive':
+          this.onTaxiArrive()
+          break
+        case 'taxiBoardEnd':
+          this.onTaxiBoardEnd(e.ref!)
+          break
       }
     }
     this.t = tEnd
@@ -653,9 +952,12 @@ export class HallSim {
     this.dispatch()
     this.dispatchSecurity()
     this.updateGates()
+    this.dispatchTaxis()
 
     if (this.t >= this.nextSample) {
-      this.history.push({ t: this.t, q: this.queue.length, sq: this.secQueue.length })
+      let ac = 0
+      for (const c of this.carousels) for (const v of c.spots) if (v !== null) ac++
+      this.history.push({ t: this.t, q: this.queue.length, sq: this.secQueue.length, tq: this.taxiQueue.length, ac })
       // 24 h at one sample per minute.
       if (this.history.length > 1440) this.history.shift()
       this.nextSample += 60
@@ -671,7 +973,9 @@ export class HallSim {
     const picked = pickFlight(this.wallClock() % 86400, () => r.next())
     const depAt = this.t + picked.lead
     const flightKey = `${picked.flight.code}@${Math.round(depAt)}`
+    // Field order matters: the look and timing draws keep their original stream order.
     const p: Pax = {
+      ...paxDefaults(),
       id,
       code: `P-${String(id).padStart(4, '0')}`,
       look: {
@@ -687,39 +991,14 @@ export class HallSim {
       speed: 1.1 + r.next() * 0.35,
       phase: 'toTerminal',
       s: SPAWN_S,
-      route: null,
-      d: 0,
-      x: 0,
-      z: 0,
       yaw: Math.PI,
-      hasBag: true,
       arrivedAt: this.t,
-      calledAt: null,
-      serviceStart: null,
-      serviceDur: null,
-      counter: null,
-      secJoinAt: null,
-      secCalledAt: null,
-      lane: null,
-      alarm: null,
-      reclaimSpot: null,
-      holdSince: 0,
-      actStart: null,
-      actDur: null,
       depAt,
       flightKey,
-      y: 0,
-      missed: false,
-      spot: null,
       // Head for the gate 38–55 minutes before departure.
       shopLeaveAt: depAt - (38 + r.next() * 17) * 60,
-      atGateAt: null,
-      queueJoinAt: 0,
-      dwell: null,
-      cafeServer: null,
-      cafeSeat: null,
-      cafeUntil: 0,
       mood: 0.78 + r.next() * 0.2,
+      kind: 'dep',
     }
     let rec = this.flights.get(flightKey)
     if (!rec) {
@@ -729,7 +1008,7 @@ export class HallSim {
     }
     rec.booked++
     // Step out of the car at its bay, then walk in.
-    const v = this.vehicles.find((k) => Math.abs(k.ta - this.t) < 1e-6)
+    const v = this.vehicles.find((k) => k.purpose === 'drop' && Math.abs(k.ta - this.t) < 1e-6)
     const bay = v ? v.bay : 0
     ;[p.x, p.z] = alightPoint(bay)
     p.route = routeCurbToDoor(bay)
@@ -1232,6 +1511,10 @@ export class HallSim {
   /** Per step: check-in cut-off, missed flights, shop departures, boarding call, podium scans. */
   private updateGates() {
     for (const p of this.pax.values()) {
+      if (p.kind !== 'dep') {
+        this.updateArrival(p)
+        continue
+      }
       if (p.phase === 'queue' && this.t >= p.depAt - CHECKIN_CLOSES) {
         this.turnAway(p)
         continue
@@ -1335,6 +1618,7 @@ export class HallSim {
     this.moveQueue(this.secQueue, secQueuePath, dt)
     for (const g of this.gates) this.moveQueue(g.queue, g.spot.queuePath, dt)
     this.moveQueue(this.cafe.queue, CAFE.queuePath, dt)
+    this.moveQueue(this.taxiQueue, TAXI_QUEUE, dt)
 
     for (const p of this.pax.values()) {
       p.mood = Math.min(1, Math.max(0, p.mood + (MOOD_RATE[p.phase] ?? 0) * dt))
@@ -1343,7 +1627,7 @@ export class HallSim {
         if (!tray || this.t >= tray.arriveAt) this.startReclaim(p)
         continue
       }
-      if (!p.route || !(p.phase.startsWith('to') || p.phase === 'boarding')) continue
+      if (!p.route || !(p.phase.startsWith('to') || p.phase === 'boarding' || p.phase === 'deplaning')) continue
       const route = p.route
       p.d = Math.min(route.length, p.d + p.speed * dt)
       const pt = route.at(p.d)
@@ -1351,6 +1635,10 @@ export class HallSim {
       p.z = pt.z
       p.yaw = Math.atan2(pt.dx, pt.dz)
       if (p.phase === 'boarding') p.y = Math.min(1, Math.max(0, (p.d - this.gateOf(p).spot.boardRise) / 1.4)) * DOOR_Y
+      else if (p.phase === 'deplaning') {
+        const g = this.gateOf(p).spot
+        p.y = Math.min(1, Math.max(0, (g.boardRoute.length - g.boardRise - p.d) / 1.4)) * DOOR_Y
+      }
       if (p.d < route.length) continue
       p.route = null
       switch (p.phase) {
@@ -1421,8 +1709,57 @@ export class HallSim {
           this.cal.push({ t: this.t + 40, kind: 'rebookEnd', ref: p.id })
           this.version++
           break
+        case 'deplaning':
+          this.afterDeplaning(p)
+          break
+        case 'toClaim':
+          p.phase = 'claimWait'
+          p.claimAt = this.t
+          p.yaw = this.carousels[p.carousel!].spot.spots[p.claimSpot!].yaw
+          this.version++
+          break
+        case 'toExit':
+          this.throughCustoms(p)
+          break
+        case 'toMeet':
+          this.startMeeting(p)
+          break
+        case 'toCarPark':
+          if (p.kind === 'arr') this.leaveAirport(p)
+          else {
+            this.pax.delete(p.id)
+            this.version++
+          }
+          break
+        case 'toTaxiQueue':
+          p.phase = 'taxiQueue'
+          p.s = TAXI_QUEUE.length
+          p.taxiJoinAt = this.t
+          this.taxiQueue.push(p.id)
+          this.version++
+          break
+        case 'toTaxi':
+          p.phase = 'taxiBoard'
+          p.yaw = 0
+          p.actStart = this.t
+          p.actDur = Math.max(8, this.rngIn.lognormal(18, 0.4))
+          this.cal.push({ t: this.t + p.actDur, kind: 'taxiBoardEnd', ref: p.id })
+          this.version++
+          break
+        case 'toPickup':
+          p.phase = 'curbWait'
+          p.yaw = 0
+          this.version++
+          break
+        case 'toRail':
+          p.phase = 'greeting'
+          p.yaw = this.greeterSpotOf(p)?.yaw ?? Math.PI
+          this.version++
+          break
       }
     }
+
+    this.moveTaxis(dt)
 
     for (const o of this.officers) {
       if (!o.route) continue
@@ -1462,6 +1799,426 @@ export class HallSim {
       list.sort((a, b) => a.arriveAt - b.arriveAt).forEach((tray, k) => (tray.s = len - k * 0.66))
     })
   }
+
+  /* ---------------- arrivals ---------------- */
+
+  /** Queue the next inbound flight: one per departure, deplaning 48 min before it leaves again. */
+  private scheduleInbound() {
+    for (;;) {
+      const k = this.inboundSeq++
+      const f = schedule[k % schedule.length]
+      const deplane = Math.floor(k / schedule.length) * 86400 + f.dep - DEPLANE_LEAD - DAY_START
+      // Aircraft already on stand when the run starts arrived with no one to simulate.
+      if (deplane < 0) continue
+      this.cal.push({ t: Math.max(this.t, deplane - INBOUND_NOTICE), kind: 'inbound', ref: k })
+      return
+    }
+  }
+
+  /** Inbound load per flight follows the same daily and weekly pattern as departures. */
+  private inboundLoad(t: number) {
+    const p = this.params
+    if (!p.dailyProfile) return Math.min(170, p.arrivalsPerHour * 0.6)
+    const w = this.wallClock(t)
+    const share = HOURLY[Math.floor(w / 3600) % 24]
+    return Math.min(170, p.arrivalsPerHour * 0.6 * WEEKLY[Math.floor(w / 86400) % 7] * (0.45 + 0.55 * share))
+  }
+
+  /** Manifest, greeters and bags for one inbound flight. */
+  private onInbound(k: number) {
+    const r = this.rngIn
+    const out = schedule[k % schedule.length]
+    const depWall = Math.floor(k / schedule.length) * 86400 + out.dep
+    const onBlock = depWall - ON_BLOCK_LEAD - DAY_START
+    const design = designs[this.params.design]
+    const n = Math.max(8, Math.round(this.inboundLoad(onBlock) * (0.85 + 0.3 * r.next())))
+    // Out-and-back: the aircraft arrives from the city it returns to, under the next flight number.
+    const code = `SD ${String(Number(out.code.slice(3)) + 1).padStart(3, '0')}`
+    const flight: Flight = { code, dest: out.dest, dep: (DAY_START + onBlock) % 86400, stand: out.stand, gate: out.gate }
+    const flightKey = `${code}@${Math.round(onBlock)}`
+    const ci = this.inboundCount++ % this.carousels.length
+    const f: InboundFlight = { id: k, flight, carousel: ci, onBlock, manifest: [], next: 0 }
+    const checked: Manifest[] = []
+    for (let i = 0; i < n; i++) {
+      const bagRoll = r.next()
+      const look: PersonLook = {
+        role: 'passenger',
+        shirt: r.pick(palette.shirts),
+        pants: r.pick(LOOK_PANTS),
+        skin: r.pick(palette.skin),
+        hair: r.pick(LOOK_HAIR),
+        bag: bagRoll < 0.72 ? 'roller' : bagRoll < 0.92 ? 'backpack' : 'none',
+        bagColor: r.pick(palette.luggage),
+      }
+      const met = r.next() < 0.3
+      const m: Manifest = {
+        id: this.nextId++,
+        look,
+        speed: 1.1 + r.next() * 0.35,
+        mood: 0.8 + r.next() * 0.18,
+        exit: met ? 'park' : r.next() < 0.62 ? 'taxi' : 'pickup',
+        greeter: null,
+        bagId: null,
+      }
+      if (met) {
+        // Greeters turn up from half an hour before landing to a few minutes after.
+        m.greeter = this.nextId++
+        const gLook: PersonLook = { role: 'passenger', shirt: r.pick(palette.shirts), pants: r.pick(LOOK_PANTS), skin: r.pick(palette.skin), hair: r.pick(LOOK_HAIR), bag: 'none' }
+        this.greeterPlan.set(m.greeter, { pax: m.id, look: gLook, flight, flightKey, onBlock })
+        this.cal.push({ t: this.t + r.next() * Math.max(0, onBlock + 240 - this.t), kind: 'greeterArrive', ref: m.greeter })
+      }
+      if (look.bag === 'roller') checked.push(m)
+      f.manifest.push(m)
+    }
+    // Bags come up in random order, starting after the first-bag delay.
+    for (let i = checked.length - 1; i > 0; i--) {
+      const j = Math.floor(r.next() * (i + 1))
+      ;[checked[i], checked[j]] = [checked[j], checked[i]]
+    }
+    let tb = onBlock + design.firstBagMin * 60 * (0.85 + 0.3 * r.next())
+    for (const m of checked) {
+      const bag: Bag = { id: this.nextBag++, pax: m.id, carousel: ci, color: m.look.bagColor!, loadAt: NaN }
+      m.bagId = bag.id
+      this.bags.set(bag.id, bag)
+      this.cal.push({ t: Math.max(this.t, tb), kind: 'bagLoad', ref: bag.id })
+      tb += Math.max(1.2, r.lognormal(design.bagGap, 0.6))
+    }
+    Object.assign(this.carousels[ci], { flight: code, from: out.dest, onBlock, total: checked.length, delivered: 0, firstBagAt: null })
+    this.inbound.set(k, f)
+    this.cal.push({ t: Math.max(this.t, depWall - DEPLANE_LEAD - DAY_START), kind: 'deplane', ref: k })
+    this.version++
+    this.scheduleInbound()
+  }
+
+  /** One passenger steps off the aircraft into the jet bridge; the next follows a few seconds later. */
+  private onDeplane(k: number) {
+    const f = this.inbound.get(k)!
+    const m = f.manifest[f.next++]
+    const g = this.gates[f.flight.stand].spot
+    const p: Pax = {
+      ...paxDefaults(),
+      id: m.id,
+      code: `A-${String(m.id).padStart(4, '0')}`,
+      look: m.look,
+      flight: f.flight,
+      speed: m.speed,
+      phase: 'deplaning',
+      arrivedAt: this.t,
+      depAt: f.onBlock,
+      flightKey: `${f.flight.code}@${Math.round(f.onBlock)}`,
+      mood: m.mood,
+      kind: 'arr',
+      hasBag: m.look.bag !== 'roller',
+      carousel: m.bagId !== null ? f.carousel : null,
+      bagId: m.bagId,
+      partner: m.greeter,
+      exitMode: m.exit,
+      y: DOOR_Y,
+    }
+    ;[p.x, p.z] = doorPoint(f.flight.stand)
+    p.route = routeDeplane(g.boardRoute, g.hx)
+    this.pax.set(p.id, p)
+    this.landed++
+    this.version++
+    if (f.next < f.manifest.length) this.cal.push({ t: this.t + Math.max(1.6, this.rngIn.lognormal(3.2, 0.45)), kind: 'deplane', ref: k })
+    else this.inbound.delete(k)
+  }
+
+  /** Out of the holdroom: to a free place at the carousel, or straight through with hand luggage. */
+  private afterDeplaning(p: Pax) {
+    p.y = 0
+    if (p.carousel === null) return this.walk(p, 'toExit', routeStraightThrough([p.x, p.z]))
+    const c = this.carousels[p.carousel]
+    const free = (ring: number) => c.spots.map((v, i) => (v === null && c.spot.spots[i].ring === ring ? i : -1)).filter((i) => i >= 0)
+    let options = free(0)
+    if (!options.length) options = free(1)
+    // A crowded belt: squeeze in anywhere.
+    const k = options.length ? options[Math.floor(this.rngIn.next() * options.length)] : Math.floor(this.rngIn.next() * c.spots.length)
+    if (c.spots[k] === null) c.spots[k] = p.id
+    p.claimSpot = k
+    this.walk(p, 'toClaim', routeToClaim([p.x, p.z], c.spot, c.spot.spots[k]))
+  }
+
+  private beltS(bag: Bag) {
+    return this.carousels[bag.carousel].spot.infeedS + CAROUSEL.speed * (this.t - bag.loadAt)
+  }
+
+  /** A bag comes up onto the belt, unless the belt is full at the infeed. */
+  private onBagLoad(id: number) {
+    const bag = this.bags.get(id)!
+    const c = this.carousels[bag.carousel]
+    const L = c.spot.belt.length
+    if (c.belt.some((o) => loopGap(this.beltS(this.bags.get(o)!), c.spot.infeedS, L) < 0.85)) {
+      this.cal.push({ t: this.t + 1, kind: 'bagLoad', ref: id })
+      return
+    }
+    bag.loadAt = this.t
+    c.belt.push(id)
+    c.delivered++
+    c.firstBagAt ??= this.t
+    this.version++
+  }
+
+  /** Per step for arrivals and greeters: grab your bag as it passes, or find your greeter. */
+  private updateArrival(p: Pax) {
+    if (p.phase === 'claimWait') {
+      const bag = this.bags.get(p.bagId!)
+      if (!bag || Number.isNaN(bag.loadAt)) return
+      const c = this.carousels[p.carousel!]
+      if (loopGap(this.beltS(bag), c.spot.spots[p.claimSpot!].s, c.spot.belt.length) > 0.3) return
+      c.belt.splice(c.belt.indexOf(bag.id), 1)
+      this.bags.delete(bag.id)
+      this.bagWaitSum += this.t - p.claimAt!
+      this.bagWaitCount++
+      p.phase = 'claimPick'
+      p.actStart = this.t
+      p.actDur = Math.max(3, this.rngIn.lognormal(6, 0.4))
+      this.cal.push({ t: this.t + p.actDur, kind: 'pickEnd', ref: p.id })
+      this.version++
+    } else if (p.phase === 'waitGreeter') this.tryMeet(p)
+  }
+
+  private onPickEnd(id: number) {
+    const p = this.pax.get(id)!
+    const c = this.carousels[p.carousel!]
+    p.hasBag = true
+    p.actStart = null
+    p.actDur = null
+    if (c.spots[p.claimSpot!] === p.id) c.spots[p.claimSpot!] = null
+    this.walk(p, 'toExit', routeClaimToExit(c.spot, c.spot.spots[p.claimSpot!]))
+  }
+
+  /** Through customs to the end of the rails: meet a greeter, or head for a car or the taxi rank. */
+  private throughCustoms(p: Pax) {
+    this.arrJourneySum += this.t - p.arrivedAt
+    this.arrJourneys++
+    if (p.exitMode === 'park') return this.tryMeet(p)
+    if (p.exitMode === 'pickup') return this.sendToPickup(p)
+    const tail = TAXI_QUEUE.at(TAXI_QUEUE.length)
+    this.walk(p, 'toTaxiQueue', new Polyline([[p.x, p.z], ...outThroughDoor(0.4), [ARR_AXIS + 6, 9.3], [tail.x, tail.z]]))
+  }
+
+  private greeterSpotOf(g: Pax): GreeterSpot | null {
+    if (!g.greeterSpot) return null
+    return (g.greeterSpot.back ? greeterBackRow : greeterSpots)[g.greeterSpot.index]
+  }
+
+  private tryMeet(p: Pax) {
+    const g = this.pax.get(p.partner!)
+    if (!g || g.phase !== 'greeting') {
+      if (p.phase !== 'waitGreeter') {
+        p.phase = 'waitGreeter'
+        p.yaw = 0
+        this.version++
+      }
+      return
+    }
+    const spot = this.greeterSpotOf(g)
+    const meet: XZ = spot ? spot.meet : [g.x, g.z - 0.6]
+    this.walk(p, 'toMeet', new Polyline([[p.x, p.z], [meet[0], MEET_Z], meet]))
+  }
+
+  private startMeeting(p: Pax) {
+    const g = this.pax.get(p.partner!)!
+    p.phase = 'meeting'
+    p.yaw = Math.atan2(g.x - p.x, g.z - p.z)
+    g.yaw = Math.atan2(p.x - g.x, p.z - g.z)
+    g.phase = 'meeting'
+    this.cal.push({ t: this.t + 4 + this.rngIn.next() * 5, kind: 'meetEnd', ref: p.id })
+    this.version++
+  }
+
+  /** Together out of the doors and along the plaza to the car park. */
+  private onMeetEnd(id: number) {
+    const p = this.pax.get(id)!
+    const g = this.pax.get(p.partner!)!
+    if (g.greeterSpot) {
+      const list = g.greeterSpot.back ? this.greeterBack : this.greeterSpots
+      if (list[g.greeterSpot.index] === g.id) list[g.greeterSpot.index] = null
+      g.greeterSpot = null
+    }
+    const speed = Math.min(p.speed, g.speed)
+    p.speed = speed
+    g.speed = speed
+    this.walk(p, 'toCarPark', new Polyline([[p.x, p.z], ...outThroughDoor(-0.3), CAR_PARK]))
+    this.walk(g, 'toCarPark', new Polyline([[g.x, g.z], ...outThroughDoor(0.3), [CAR_PARK[0], CAR_PARK[1] + 0.6]]))
+  }
+
+  /** A greeter walks in from the car park and takes a place at the rail (or behind it). */
+  private spawnGreeter(id: number) {
+    const plan = this.greeterPlan.get(id)!
+    this.greeterPlan.delete(id)
+    const pickFree = (list: (number | null)[]) => {
+      const idx = list.map((v, i) => (v === null ? i : -1)).filter((i) => i >= 0)
+      return idx.length ? idx[Math.floor(this.rngIn.next() * idx.length)] : -1
+    }
+    let back = false
+    let k = pickFree(this.greeterSpots)
+    if (k < 0) {
+      back = true
+      k = pickFree(this.greeterBack)
+    }
+    const g: Pax = {
+      ...paxDefaults(),
+      id,
+      code: `G-${String(id).padStart(4, '0')}`,
+      look: plan.look,
+      flight: plan.flight,
+      speed: 1.05 + this.rngIn.next() * 0.3,
+      phase: 'toRail',
+      arrivedAt: this.t,
+      depAt: plan.onBlock,
+      flightKey: plan.flightKey,
+      mood: 0.9,
+      kind: 'greeter',
+      hasBag: false,
+      partner: plan.pax,
+    }
+    ;[g.x, g.z] = CAR_PARK
+    let target: GreeterSpot
+    if (k >= 0) {
+      ;(back ? this.greeterBack : this.greeterSpots)[k] = id
+      g.greeterSpot = { back, index: k }
+      target = (back ? greeterBackRow : greeterSpots)[k]
+    } else {
+      // Every place taken: stand wherever there is room near the doors.
+      const x = ARR_AXIS + (this.rngIn.next() < 0.5 ? -1 : 1) * (2 + this.rngIn.next() * 5)
+      target = { at: [x, 7.4], yaw: Math.PI, meet: [x, 6.8] }
+    }
+    g.route = routeGreeterIn(target)
+    this.pax.set(id, g)
+    this.version++
+  }
+
+  /** Book a pick-up car at the quieter bay, timed to arrive while the passenger walks out (or soon after). */
+  private sendToPickup(p: Pax) {
+    let b = 0
+    this.pickupFree.forEach((t, i) => {
+      if (t < this.pickupFree[b]) b = i
+    })
+    const alight = alightPoint(PICKUP_BAY0 + b)
+    const route = new Polyline([[p.x, p.z], ...outThroughDoor(-0.4), [alight[0], 12.6], alight])
+    const walk = route.length / p.speed
+    const ta = Math.max(this.t + walk + 4 + this.rngIn.next() * 150, this.t + VEHICLE_SPAN.before + 1, this.pickupFree[b])
+    this.pickupFree[b] = ta + 20
+    const colours = ['#f6f7fb', '#b9c1d1', '#2a3040', '#8a1f2b', '#2b5cf0', '#3d6b55']
+    this.vehicles.push({ id: this.nextVehicle++, kind: 'car', purpose: 'pickup', color: colours[Math.floor(this.rngIn.next() * colours.length)], bay: PICKUP_BAY0 + b, ta })
+    this.cal.push({ t: ta, kind: 'curbPickup', ref: p.id })
+    this.walk(p, 'toPickup', route)
+  }
+
+  /** An arrival leaves the model: into a car, a taxi, or off to the car park. */
+  private leaveAirport(p: Pax) {
+    this.arrivalsOut++
+    this.arrMoodSum += p.mood
+    this.pax.delete(p.id)
+    this.version++
+  }
+
+  /* ---------------- taxi rank ---------------- */
+
+  private scheduleTaxi() {
+    const rate = this.params.taxisPerHour
+    // With supply switched off, check back in ten minutes in case it is turned up again.
+    this.cal.push({ t: this.t + (rate > 0 ? this.rngTaxi.exp(rate / 3600) : 600), kind: 'taxiArrive' })
+  }
+
+  /** Taxis in the rank, including those still rolling in. */
+  private rankCount() {
+    return this.taxis.filter((x) => x.state !== 'leaving').length
+  }
+
+  private enterRank() {
+    const slot = this.rankCount()
+    const route = taxiArriveRoute(slot)
+    const p0 = route.at(0)
+    this.taxis.push({ id: this.nextTaxi++, x: p0.x, z: p0.z, yaw: -Math.PI / 2, state: 'arriving', slot, route, d: 0, speed: 9, pax: null, rankedAt: 0 })
+    this.version++
+  }
+
+  /** A taxi turns up: into the rank, else the holding lot (if the design has one), else it drives on. */
+  private onTaxiArrive() {
+    if (this.params.taxisPerHour > 0) {
+      if (this.rankCount() < RANK_SLOTS) this.enterRank()
+      else if (this.taxiLot < designs[this.params.design].taxiLot) this.taxiLot++
+      else this.taxisTurned++
+    }
+    this.scheduleTaxi()
+  }
+
+  /** Taxis roll up to their slot; the head of the passenger queue takes the front taxi. */
+  private dispatchTaxis() {
+    for (const x of this.taxis) {
+      if (x.state === 'ranked' && !x.route && Math.abs(x.x - rankX(x.slot)) > 0.05) {
+        x.route = new Polyline([[x.x, x.z], [rankX(x.slot), DROP_Z]])
+        x.d = 0
+        x.speed = 3
+      }
+    }
+    if (!this.taxiQueue.length) return
+    const head = this.pax.get(this.taxiQueue[0])!
+    if (head.s > 0.25) return
+    const front = this.taxis.find((x) => x.slot === 0 && x.state === 'ranked' && !x.route)
+    if (!front) return
+    this.taxiQueue.shift()
+    front.state = 'loading'
+    front.pax = head.id
+    this.taxiIdleSum += this.t - front.rankedAt
+    this.taxiIdleCount++
+    this.taxiWaitSum += this.t - head.taxiJoinAt!
+    this.taxiWaitCount++
+    this.walk(head, 'toTaxi', new Polyline([[head.x, head.z], TAXI_DOOR]))
+  }
+
+  private onTaxiBoardEnd(id: number) {
+    const p = this.pax.get(id)!
+    const taxi = this.taxis.find((x) => x.pax === id)!
+    this.leaveAirport(p)
+    taxi.state = 'leaving'
+    taxi.route = taxiLeaveRoute(taxi.x)
+    taxi.d = 0
+    taxi.speed = 7
+    for (const x of this.taxis) if (x !== taxi && x.state !== 'leaving') x.slot--
+    // The dispatcher calls the next car up from the holding lot.
+    if (this.taxiLot > 0) {
+      this.taxiLot--
+      this.enterRank()
+    }
+    this.version++
+  }
+
+  private moveTaxis(dt: number) {
+    for (let i = this.taxis.length - 1; i >= 0; i--) {
+      const x = this.taxis[i]
+      if (!x.route) continue
+      x.d = Math.min(x.route.length, x.d + x.speed * dt)
+      const pt = x.route.at(x.d)
+      x.x = pt.x
+      x.z = pt.z
+      x.yaw = Math.atan2(pt.dx, pt.dz)
+      if (x.d < x.route.length) continue
+      x.route = null
+      x.yaw = -Math.PI / 2
+      if (x.state === 'leaving') {
+        this.taxis.splice(i, 1)
+        this.version++
+      } else if (x.state === 'arriving') {
+        x.state = 'ranked'
+        x.rankedAt = this.t
+        this.version++
+      }
+    }
+  }
+
+  /** Every bag on a carousel's belt with its pose, for drawing. */
+  bagPoses(ci: number) {
+    const c = this.carousels[ci]
+    return c.belt.map((id) => {
+      const bag = this.bags.get(id)!
+      return { id, color: bag.color, ...bagPose(c.spot, this.beltS(bag)) }
+    })
+  }
+
 
   /* ---------------- controls ---------------- */
 
@@ -1523,7 +2280,7 @@ export class HallSim {
     this.version++
   }
 
-  setParam<K extends 'arrivalsPerHour' | 'serviceMean' | 'divestMean' | 'alarmRate' | 'searchMean'>(k: K, v: number) {
+  setParam<K extends 'arrivalsPerHour' | 'serviceMean' | 'divestMean' | 'alarmRate' | 'searchMean' | 'taxisPerHour'>(k: K, v: number) {
     this.params[k] = v
   }
 
@@ -1532,6 +2289,49 @@ export class HallSim {
   }
 
   /* ---------------- reporting ---------------- */
+
+  /** Average mood of passengers inside right now (greeters are not passengers). */
+  private moodNow() {
+    let sum = 0
+    let n = 0
+    for (const p of this.pax.values()) {
+      if (p.kind === 'greeter') continue
+      sum += p.mood
+      n++
+    }
+    return n ? sum / n : 1
+  }
+
+  private arrivalStats() {
+    let arrInside = 0
+    let atCarousels = 0
+    let greetersWaiting = 0
+    let pickupsWaiting = 0
+    for (const p of this.pax.values()) {
+      if (p.kind === 'arr') arrInside++
+      if (p.phase === 'claimWait' || p.phase === 'claimPick') atCarousels++
+      else if (p.phase === 'greeting') greetersWaiting++
+      else if (p.phase === 'curbWait') pickupsWaiting++
+    }
+    return {
+      landed: this.landed,
+      arrInside,
+      atCarousels,
+      bagsOnBelts: this.carousels.reduce((a, c) => a + c.belt.length, 0),
+      bagWaitAvg: this.bagWaitCount ? this.bagWaitSum / this.bagWaitCount : 0,
+      arrJourneyAvg: this.arrJourneys ? this.arrJourneySum / this.arrJourneys : 0,
+      arrivalsOut: this.arrivalsOut,
+      taxiQueue: this.taxiQueue.length,
+      taxiWaitAvg: this.taxiWaitCount ? this.taxiWaitSum / this.taxiWaitCount : 0,
+      taxisRanked: this.taxis.filter((x) => x.state === 'ranked' || x.state === 'loading').length,
+      taxiIdleAvg: this.taxiIdleCount ? this.taxiIdleSum / this.taxiIdleCount : 0,
+      taxisTurned: this.taxisTurned,
+      taxisInLot: this.taxiLot,
+      greetersWaiting,
+      pickupsWaiting,
+      arrSatisfaction: this.arrivalsOut ? this.arrMoodSum / this.arrivalsOut : 1,
+    }
+  }
 
   stats(): HallStats {
     const hourAgo = this.t - 3600
@@ -1579,13 +2379,15 @@ export class HallSim {
       cafeServed: this.cafe.served,
       vehiclesNow: this.vehicles.filter((v) => this.t >= v.ta - VEHICLE_SPAN.before && this.t <= v.ta + VEHICLE_SPAN.after).length,
       dropoffsHour: this.dropTimes.filter((x) => x > this.t - 3600).length / Math.max(0.05, Math.min(1, this.t / 3600)),
-      taxiShare: this.nextVehicle > 1 ? this.taxis / (this.nextVehicle - 1) : 0,
+      taxiShare: this.drops ? this.taxiDrops / this.drops : 0,
       atGates: [...this.pax.values()].filter((p) => p.atGateAt !== null && p.phase !== 'toRebook' && p.phase !== 'rebook').length,
       boarded: this.boarded,
       missed: this.missed,
       missedRate: this.boarded + this.missed ? this.missed / (this.boarded + this.missed) : 0,
       satisfaction: this.moodCount ? this.moodSum / this.moodCount : 1,
-      moodNow: this.pax.size ? [...this.pax.values()].reduce((a, p) => a + p.mood, 0) / this.pax.size : 1,
+      moodNow: this.moodNow(),
+
+      ...this.arrivalStats(),
       history: this.history,
     }
   }

@@ -5,13 +5,15 @@ import { PeopleGroup } from './objects/Person'
 import { WalkthroughArch, XRayScanner } from './objects/security'
 import { CheckInCounter, FlightBoard, Planter, QueueLane, SeatingRow } from './objects/terminal'
 import { CafeCounter, Car, Lift, Lightbox, PalmPlanter, TreeColumn } from './objects/mashhad'
+import { BaggageCarousel, BarrierRail, CurbSign, Suitcase } from './objects/arrivals'
 
-export type Category = 'terminal' | 'security' | 'airside' | 'people' | 'decor' | 'mashhad'
+export type Category = 'terminal' | 'security' | 'airside' | 'arrivals' | 'people' | 'decor' | 'mashhad'
 
 export const categories: { id: Category; label: string }[] = [
   { id: 'terminal', label: 'Terminal' },
   { id: 'security', label: 'Security' },
   { id: 'airside', label: 'Airside' },
+  { id: 'arrivals', label: 'Arrivals' },
   { id: 'people', label: 'People' },
   { id: 'decor', label: 'Decor' },
   { id: 'mashhad', label: 'Mashhad' },
@@ -340,6 +342,75 @@ kit.push(
       ['Share', '≈ 65% of drop-offs'],
     ],
     render: () => <Car taxi />,
+  },
+  {
+    id: 'carousel',
+    code: 'BC-01',
+    name: 'Baggage carousel',
+    category: 'arrivals',
+    description: 'Flat-plate racetrack reclaim belt with a centre island, infeed hatch and flight display. Bags ride it until their owner lifts them off.',
+    footprint: [9.2, 3.2],
+    height: 3.3,
+    at: [20, -10.5],
+    states: [
+      { id: 'running', label: 'Delivering', tone: 'ok' },
+      { id: 'idle', label: 'Idle', tone: 'idle' },
+    ],
+    specs: [
+      ['Belt', '6 m straights, 1.1 m radius'],
+      ['Speed', '0.42 m/s'],
+      ['Waiting places', '≈ 60, two rows'],
+    ],
+    render: (s) => <BaggageCarousel state={s as never} flight="SD 512" from="Tehran" />,
+  },
+  {
+    id: 'suitcase',
+    code: 'BG-01',
+    name: 'Checked suitcase',
+    category: 'arrivals',
+    description: 'Hard-shell case lying flat, as it rides the belt. Colour matches the passenger who checked it.',
+    footprint: [0.62, 0.42],
+    height: 0.27,
+    at: [15.6, -5.2],
+    states: [{ id: 'static', label: 'On belt', tone: 'ok' }],
+    specs: [
+      ['Size', '0.62 × 0.42 × 0.24 m'],
+      ['Checked', '≈ 72% of arrivals'],
+    ],
+    render: () => <Suitcase />,
+  },
+  {
+    id: 'rail',
+    code: 'RL-01',
+    name: 'Greeter rail',
+    category: 'arrivals',
+    description: 'Chrome posts with glass infill. Lines the exit corridor so greeters wait outside it; the taxi queue uses the open version.',
+    footprint: [3.6, 0.3],
+    height: 1.0,
+    at: [20, -5.2],
+    states: [{ id: 'static', label: 'Structure', tone: 'idle' }],
+    specs: [
+      ['Height', '1.0 m'],
+      ['Post pitch', '≈ 1.2 m'],
+    ],
+    render: () => (
+      <group position={[-1.8, 0, 0]}>
+        <BarrierRail length={3.6} />
+      </group>
+    ),
+  },
+  {
+    id: 'curb-sign',
+    code: 'CS-01',
+    name: 'Curb sign',
+    category: 'arrivals',
+    description: 'Bilingual post sign for the taxi rank, pick-up bays and the car park path.',
+    footprint: [1.4, 0.3],
+    height: 2.75,
+    at: [24.6, -5.2],
+    states: [{ id: 'static', label: 'Static', tone: 'idle' }],
+    specs: [['Panel', '1.4 × 0.42 m']],
+    render: () => <CurbSign label="TAXI" fa="تاکسی" />,
   },
 )
 

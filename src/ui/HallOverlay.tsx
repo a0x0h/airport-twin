@@ -24,8 +24,9 @@ const laneTone = (label: string): StateTone =>
   label === 'Blocked' ? 'fault' : label === 'Closed' ? 'idle' : label === 'Closing' || label === 'Screening' ? 'warn' : 'ok'
 
 const FAULT_PHASES: Pax['phase'][] = ['atArch', 'blockedDivest', 'toHold', 'hold', 'search', 'toRebook', 'rebook', 'toLandside']
+const WAIT_PHASES: Pax['phase'][] = ['queue', 'secQueue', 'boardQueue', 'claimWait', 'taxiQueue', 'curbWait', 'waitGreeter']
 const paxTone = (p: Pax): StateTone =>
-  p.missed || FAULT_PHASES.includes(p.phase) ? 'fault' : p.phase === 'queue' || p.phase === 'secQueue' || p.phase === 'boardQueue' ? 'warn' : p.phase === 'shopping' ? 'idle' : 'ok'
+  p.missed || FAULT_PHASES.includes(p.phase) ? 'fault' : WAIT_PHASES.includes(p.phase) ? 'warn' : p.phase === 'shopping' || p.phase === 'greeting' ? 'idle' : 'ok'
 
 /** The flight a gate is serving now: the next departure from its stand, kept until 10 min after it leaves. */
 function gateFlight(stand: number, t: number) {
@@ -111,7 +112,7 @@ function TimeBar() {
 /* ------------------------------------------------------------------ */
 
 /** Queue-length sparkline: single series, hover crosshair + tooltip. */
-function Sparkline({ data, field, unit }: { data: Sample[]; field: 'q' | 'sq'; unit: string }) {
+function Sparkline({ data, field, unit }: { data: Sample[]; field: 'q' | 'sq' | 'tq' | 'ac'; unit: string }) {
   const speed = useHall((s) => s.speed)
   const [hover, setHover] = useState<number | null>(null)
   const W = 304
@@ -126,7 +127,7 @@ function Sparkline({ data, field, unit }: { data: Sample[]; field: 'q' | 'sq'; u
   if (pts.length < 2) return <div className="spark spark--empty">Collecting data…</div>
   const t0 = pts[0].t
   const t1 = pts[pts.length - 1].t
-  const qMax = Math.max(5, ...pts.map((d) => d[field]))
+  const qMax = Math.max(5, ...pts.map((d) => d[field] ?? 0))
   const x = (t: number) => ((t - t0) / (t1 - t0 || 1)) * W
   const y = (q: number) => pad.t + (1 - q / qMax) * (H - pad.t - pad.b)
   const line = pts.map((d, i) => `${i ? 'L' : 'M'}${x(d.t).toFixed(1)},${y(d[field]).toFixed(1)}`).join('')
@@ -335,7 +336,7 @@ function TerminalTab() {
       </div>
       <div className="insp__head">
         <h2 className="insp__title">Mashhad International</h2>
-        <p className="insp__desc">MHD · Shahid Hashemi Nejad. Passengers are dropped at the curb, check in, clear security, dwell airside and board. Demand follows the time of day and the day of the week.</p>
+        <p className="insp__desc">MHD · Shahid Hashemi Nejad. Departing passengers are dropped at the curb, check in, clear security, dwell airside and board. Every aircraft first brings a load in: arrivals collect bags, meet greeters and leave by car or taxi. Demand follows the time of day and the day of the week.</p>
       </div>
       <div className="kpis">
         <Kpi label="In terminal" value={stats.inHall} sub={`${stats.inShops} shopping`} />
@@ -346,6 +347,8 @@ function TerminalTab() {
         <Kpi label="Missed flights" value={<span className={stats.missed ? 'tone tone--fault' : ''}>{stats.missed}</span>} sub={`${(stats.missedRate * 100).toFixed(1)}% of departures`} />
         <Kpi label="Satisfaction" value={`${Math.round(stats.satisfaction * 100)}%`} sub="mood at boarding" />
         <Kpi label="Mood now" value={`${Math.round(stats.moodNow * 100)}%`} sub="everyone inside" />
+        <Kpi label="Landed" value={stats.landed} sub={`${stats.arrInside} arrivals inside`} />
+        <Kpi label="Taxi wait" value={mmss(stats.taxiWaitAvg)} sub={`${stats.taxiQueue} in the queue`} />
       </div>
       <Section title={`Design · ${design.fa}`} aside={<a href="#/lab">Compare in the Lab →</a>}>
         <ul className="design-list">
@@ -616,6 +619,68 @@ function GatesTab() {
   )
 }
 
+function ArrivalsTab() {
+  useHall((s) => s.version)
+  const stats = useHall((s) => s.stats)
+  const sim = useHall((s) => s.sim)
+  const params = useHall((s) => s.params)
+  const setParam = useHall((s) => s.setParam)
+  const select = useHall((s) => s.select)
+  const lot = designs[params.design].taxiLot
+  return (
+    <>
+      <div className="insp__head">
+        <h2 className="insp__title">Arrivals</h2>
+        <p className="insp__desc">Each aircraft unloads on stand before it turns round. Passengers wait at the belt until their own bag comes past, clear customs, then meet a greeter, find their pick-up car or join the taxi rank.</p>
+      </div>
+      <div className="kpis">
+        <Kpi label="Landed" value={stats.landed} sub={`${stats.arrInside} inside now`} />
+        <Kpi label="At the belts" value={stats.atCarousels} sub={`${stats.bagsOnBelts} bags circulating`} />
+        <Kpi label="Bag wait" value={mmss(stats.bagWaitAvg)} sub="at the belt, average" />
+        <Kpi label="Aircraft to exit" value={mmss(stats.arrJourneyAvg)} sub="door to customs" />
+        <Kpi label="Taxi queue" value={stats.taxiQueue} sub={`avg wait ${mmss(stats.taxiWaitAvg)}`} />
+        <Kpi label="Taxis at rank" value={stats.taxisRanked} sub={`driver wait ${mmss(stats.taxiIdleAvg)}`} />
+        <Kpi label="Greeters" value={stats.greetersWaiting} sub={`${stats.pickupsWaiting} at pick-up`} />
+        <Kpi label="Arrival mood" value={pct(stats.arrSatisfaction)} sub="as they leave" />
+      </div>
+      <Section title="Baggage belts">
+        <div className="counters">
+          {sim.carousels.map((c, i) => {
+            const done = c.total ? c.delivered / c.total : 0
+            return (
+              <button key={c.spot.id} className="counter" onClick={() => select({ kind: 'carousel', id: i })}>
+                <span className="counter__code">Belt {c.spot.number}</span>
+                <span className="counter__state">
+                  <i style={{ background: toneColor[c.belt.length ? 'warn' : c.flight ? 'ok' : 'idle'] }} />
+                  {c.flight ?? 'No flight'}
+                </span>
+                <span className="meter" aria-label={`${c.delivered} of ${c.total} bags out`}>
+                  <span style={{ width: pct(done) }} />
+                </span>
+                <span className="counter__pct">
+                  {c.delivered}/{c.total}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </Section>
+      <Section title="Taxi queue">
+        <Sparkline data={stats.history} field="tq" unit="waiting for a taxi" />
+      </Section>
+      <Section title="Taxi rank">
+        <Slider label="Taxis arriving" value={params.taxisPerHour} min={0} max={120} step={2} unit="/h" onChange={(v) => setParam('taxisPerHour', v)} />
+        <div className="rows rows--flush">
+          <Row k="Rank" v={`${stats.taxisRanked} of 6 places`} />
+          {lot > 0 && <Row k="Holding lot" v={`${stats.taxisInLot} of ${lot}`} />}
+          <Row k="Taxis that drove on" v={stats.taxisTurned} />
+        </div>
+        <p className="note">A double-ended queue: when flights land, passengers wait for taxis; between flights, taxis wait for passengers. A full rank turns taxis away unless a holding lot keeps them.</p>
+      </Section>
+    </>
+  )
+}
+
 function AirsideTab() {
   const t = useHall((s) => s.stats.t)
   const select = useHall((s) => s.select)
@@ -669,6 +734,7 @@ const ZONES: { id: Zone; label: string }[] = [
   { id: 'checkin', label: 'Check-in' },
   { id: 'security', label: 'Security' },
   { id: 'gates', label: 'Gates' },
+  { id: 'arrivals', label: 'Arrivals' },
   { id: 'airside', label: 'Airside' },
 ]
 
@@ -679,12 +745,21 @@ function Overview() {
     <>
       <div className="segmented zone-tabs" role="tablist" aria-label="Zone">
         {ZONES.map((z) => (
-          <button key={z.id} role="tab" aria-selected={zone === z.id} className={zone === z.id ? 'on' : ''} onClick={() => setZone(z.id)}>
+          <button
+            key={z.id}
+            role="tab"
+            aria-selected={zone === z.id}
+            className={zone === z.id ? 'on' : ''}
+            ref={(el) => {
+              if (el && zone === z.id) el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+            }}
+            onClick={() => setZone(z.id)}
+          >
             {z.label}
           </button>
         ))}
       </div>
-      {zone === 'terminal' ? <TerminalTab /> : zone === 'landside' ? <CurbTab /> : zone === 'checkin' ? <CheckinTab /> : zone === 'security' ? <SecurityTab /> : zone === 'gates' ? <GatesTab /> : <AirsideTab />}
+      {zone === 'terminal' ? <TerminalTab /> : zone === 'landside' ? <CurbTab /> : zone === 'checkin' ? <CheckinTab /> : zone === 'security' ? <SecurityTab /> : zone === 'gates' ? <GatesTab /> : zone === 'arrivals' ? <ArrivalsTab /> : <AirsideTab />}
     </>
   )
 }
@@ -836,6 +911,8 @@ function PaxDetail({ id }: { id: number }) {
     )
   }
 
+  if (p.kind !== 'dep') return <ArrivalDetail p={p} t={t} sim={sim} />
+
   const qPos = sim.queue.indexOf(p.id)
   const sqPos = sim.secQueue.indexOf(p.id)
   const checkinWait = (p.calledAt ?? t) - p.arrivedAt
@@ -888,6 +965,73 @@ function PaxDetail({ id }: { id: number }) {
           k="Luggage"
           v={p.look.bag === 'roller' ? (p.hasBag ? 'Roller bag' : 'Checked in') : p.look.bag === 'backpack' ? (p.hasBag ? 'Backpack' : 'Backpack in X-ray') : 'None'}
         />
+      </div>
+    </>
+  )
+}
+
+const EXIT_LABEL = { park: 'Met · walking to the car park', pickup: 'Pick-up car', taxi: 'Taxi' } as const
+
+function MoodRow({ mood }: { mood: number }) {
+  const band = moodBand(mood)
+  return (
+    <Row
+      k="Mood"
+      v={
+        <span className={`tone tone--${band === 'good' ? 'ok' : band === 'meh' ? 'warn' : 'fault'}`}>
+          {band === 'good' ? 'Content' : band === 'meh' ? 'Impatient' : 'Upset'} · {Math.round(mood * 100)}%
+        </span>
+      }
+    />
+  )
+}
+
+/** An arriving passenger or a greeter waiting for one. */
+function ArrivalDetail({ p, t, sim }: { p: Pax; t: number; sim: HallSim }) {
+  const select = useHall((s) => s.select)
+  const partner = p.partner !== null ? sim.pax.get(p.partner) : undefined
+  const who = partner ? (
+    <button className="link" onClick={() => select({ kind: 'pax', id: partner.id })}>
+      {partner.code}
+    </button>
+  ) : (
+    '—'
+  )
+  const taxiPos = sim.taxiQueue.indexOf(p.id)
+  const bag = p.bagId !== null ? sim.bags.get(p.bagId) : undefined
+  const bagState = p.look.bag !== 'roller' ? (p.look.bag === 'backpack' ? 'Backpack only' : 'No bags') : p.hasBag ? 'Collected' : bag && !Number.isNaN(bag.loadAt) ? 'On the belt' : 'Still in the bag room'
+  return (
+    <>
+      <Back />
+      <div className="insp__head">
+        <div className="insp__meta">
+          <span className={`pill pill--${paxTone(p)}`}>{phaseLabel[p.phase]}</span>
+          <span className="insp__code">{p.code}</span>
+        </div>
+        <h2 className="insp__title">{p.kind === 'greeter' ? `Meeting ${p.flight.code}` : `${p.flight.code} from ${p.flight.dest}`}</h2>
+        <p className="insp__desc">
+          {p.kind === 'greeter'
+            ? `Waiting for a passenger off the ${hhmm(p.flight.dep)} from ${p.flight.dest}.`
+            : `Landed ${hhmm(p.flight.dep)} at gate ${p.flight.gate} · leaving by ${EXIT_LABEL[p.exitMode ?? 'taxi'].toLowerCase()}.`}{' '}
+          The camera is following them.
+        </p>
+      </div>
+      {p.actStart !== null && p.actDur !== null && <Progress head={phaseLabel[p.phase]} code="" start={p.actStart} dur={p.actDur} t={t} />}
+      <div className="rows">
+        <Row k={p.kind === 'greeter' ? 'Here for' : 'Since landing'} v={mmss(t - p.arrivedAt)} />
+        {p.kind === 'greeter' ? (
+          <Row k="Meeting" v={who} />
+        ) : (
+          <>
+            <MoodRow mood={p.mood} />
+            <Row k="Luggage" v={bagState} />
+            {p.carousel !== null && <Row k="Belt" v={`Belt ${p.carousel + 1}`} />}
+            {p.phase === 'claimWait' && p.claimAt !== null && <Row k="At the belt for" v={mmss(t - p.claimAt)} />}
+            <Row k="Leaving by" v={EXIT_LABEL[p.exitMode ?? 'taxi']} />
+            {p.exitMode === 'park' && <Row k="Greeter" v={who} />}
+            {taxiPos >= 0 && <Row k="Taxi queue" v={`${taxiPos + 1} of ${sim.taxiQueue.length}`} />}
+          </>
+        )}
       </div>
     </>
   )
@@ -948,6 +1092,49 @@ function GateDetail({ stand }: { stand: number }) {
         <Row k="Seats taken" v={`${occupied(g.seats)} of ${g.seats.length}`} />
         <Row k="Standing" v={`${occupied(g.standing) + occupied(g.overflow)}`} />
         <Row k="Boarded at this gate" v={g.boarded} />
+      </div>
+    </>
+  )
+}
+
+function CarouselDetail({ index }: { index: number }) {
+  useHall((s) => s.version)
+  const t = useHall((s) => s.stats.t)
+  const sim = useHall((s) => s.sim)
+  const c = sim.carousels[index]
+  const waiting = c.spots.filter((v) => v !== null).length
+  const firstAfter = c.firstBagAt !== null ? c.firstBagAt - c.onBlock : null
+  return (
+    <>
+      <Back label="Arrivals" />
+      <div className="insp__head">
+        <div className="insp__meta">
+          <span className={`pill pill--${c.belt.length ? 'warn' : c.flight ? 'ok' : 'idle'}`}>{c.belt.length ? 'Delivering' : c.flight ? 'Assigned' : 'Idle'}</span>
+          <span className="insp__code">BELT-{c.spot.number}</span>
+        </div>
+        <h2 className="insp__title">{c.flight ? `${c.flight} from ${c.from}` : `Belt ${c.spot.number}`}</h2>
+        <p className="insp__desc">
+          {c.flight ? `On block ${clock(c.onBlock).slice(0, 5)}.` : 'No flight assigned yet.'} Bags come up at the far end in random order and ride the belt at 0.42 m/s until their owner lifts them off.
+        </p>
+      </div>
+      {c.flight && (
+        <div className="serving serving--static">
+          <span className="serving__head">
+            <span>Bags out</span>
+            <b>
+              {c.delivered} / {c.total}
+            </b>
+          </span>
+          <span className="meter meter--lg">
+            <span style={{ width: pct(c.total ? c.delivered / c.total : 0) }} />
+          </span>
+          <span className="serving__foot">{firstAfter !== null ? `First bag ${mmss(firstAfter)} after landing` : t < c.onBlock ? 'Aircraft not landed yet' : `Waiting for the first bag · ${mmss(t - c.onBlock)} since landing`}</span>
+        </div>
+      )}
+      <div className="rows">
+        <Row k="On the belt" v={c.belt.length} />
+        <Row k="Passengers waiting" v={waiting} />
+        <Row k="Places at the belt" v={c.spots.length} />
       </div>
     </>
   )
@@ -1046,6 +1233,8 @@ function Inspector() {
         <AircraftDetail stand={sel.id} />
       ) : sel?.kind === 'gate' ? (
         <GateDetail stand={sel.id} />
+      ) : sel?.kind === 'carousel' ? (
+        <CarouselDetail index={sel.id} />
       ) : (
         <Overview />
       )}
@@ -1072,6 +1261,9 @@ function Dock() {
       </span>
       <span>
         Boarded <b>{s.boarded}</b>
+      </span>
+      <span>
+        Taxi queue <b>{s.taxiQueue}</b>
       </span>
       <span>
         Missed <b className={s.missed ? 'tone tone--fault' : ''}>{s.missed}</b>
@@ -1275,7 +1467,7 @@ export function HallOverlay() {
   return (
     <div className={`overlay overlay--hall ${ui.timeline ? '' : 'overlay--no-timeline'}`} ref={root}>
       <HelpersToggle />
-      <Brand route="hall" sub="MHD · Mashhad · v0.7" />
+      <Brand route="hall" sub="MHD · Mashhad · v0.8" />
       <div className="timedock">
         <TimeBar />
         {ui.timeline && <Timeline />}
