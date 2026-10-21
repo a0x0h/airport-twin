@@ -34,6 +34,31 @@ export const icons = {
       <path d="M4.5 14h11" strokeDasharray="1.5 2" />
     </>
   ),
+  mood: (
+    <>
+      <circle cx="10" cy="10" r="6.5" />
+      <path d="M7.3 11.6c.7 1 1.6 1.5 2.7 1.5s2-.5 2.7-1.5M7.6 8.2h.01M12.4 8.2h.01" strokeWidth={2} />
+    </>
+  ),
+  heat: (
+    <>
+      <rect x="3.5" y="3.5" width="13" height="13" rx="2.5" />
+      <path d="M3.5 10h13M10 3.5v13" />
+      <rect x="10" y="3.5" width="6.5" height="6.5" fill="currentColor" stroke="none" opacity={0.55} />
+    </>
+  ),
+  sound: (
+    <>
+      <path d="M4 8v4h3l4 3.5v-11L7 8Z" />
+      <path d="M13.5 7.5a3.5 3.5 0 0 1 0 5M15.5 5.5a6.4 6.4 0 0 1 0 9" />
+    </>
+  ),
+  mute: (
+    <>
+      <path d="M4 8v4h3l4 3.5v-11L7 8Z" />
+      <path d="m13.5 8 4 4m0-4-4 4" />
+    </>
+  ),
   cube: (
     <>
       <path d="M10 2.75 16.5 6.5v7L10 17.25 3.5 13.5v-7Z" />
@@ -42,7 +67,7 @@ export const icons = {
   ),
 }
 
-export type Route = 'hall' | 'kit'
+export type Route = 'hall' | 'lab' | 'kit'
 
 export function Brand({ route, sub }: { route: Route; sub: string }) {
   return (
@@ -57,6 +82,9 @@ export function Brand({ route, sub }: { route: Route; sub: string }) {
       <nav className="brand__nav segmented" aria-label="Views">
         <a href="#/hall" className={route === 'hall' ? 'on' : ''}>
           Hall
+        </a>
+        <a href="#/lab" className={route === 'lab' ? 'on' : ''}>
+          Lab
         </a>
         <a href="#/kit" className={route === 'kit' ? 'on' : ''}>
           Kit

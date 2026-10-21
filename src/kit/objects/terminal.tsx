@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { queueGeometry, type QueueSpec } from '../queueGeometry'
 import { palette } from '../../design/tokens'
-import { surface } from '../materials'
+import { glow, surface } from '../materials'
 import { Ball, Block, Lamp, Print, Rod, roundRect } from '../primitives'
 import { Person } from './Person'
 import { flights, flightStatus, hhmm } from '../../data/flights'
@@ -247,6 +247,56 @@ export function Planter() {
       <Ball radius={0.5} position={[0, 1.45, 0]} material={leaf} />
       <Ball radius={0.36} position={[0.24, 1.2, 0.12]} material={leaf} />
       <Ball radius={0.32} position={[-0.22, 1.25, -0.1]} material={leaf} />
+    </group>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* Self bag-drop — kiosk, scale and belt, no agent. Faces +Z.         */
+/* ------------------------------------------------------------------ */
+
+export function BagDrop({ state = 'open', number = 15 }: { state?: CounterState; number?: number }) {
+  const closed = state === 'closed'
+  return (
+    <group>
+      <group position={[-0.4, 0, 0]}>
+        <Block size={[0.9, 1.0, 0.62]} position={[0, 0.5, 0.08]} />
+        <Block size={[0.92, 0.12, 0.04]} position={[0, 0.82, 0.4]} color={palette.yellow} />
+        <Block size={[0.62, 0.44, 0.06]} position={[0, 1.24, 0.18]} rotation={[-0.38, 0, 0]} color={palette.graphite} />
+        <mesh position={[0, 1.245, 0.214]} rotation={[-0.38, 0, 0]} material={glow(closed ? palette.idle : '#4f7cff', closed ? 0.1 : 0.75)}>
+          <planeGeometry args={[0.54, 0.36]} />
+        </mesh>
+        {/* boarding-pass reader and tag printer */}
+        <Block size={[0.22, 0.08, 0.16]} position={[0.3, 1.04, 0.3]} color={palette.graphite} />
+        <Lamp tone={state === 'open' ? 'ok' : state === 'busy' ? 'warn' : 'idle'} position={[-0.36, 1.04, 0.36]} />
+      </group>
+      <group position={[0.62, 0, 0]}>
+        <Block size={[0.98, 0.3, 0.9]} position={[0, 0.15, 0]} />
+        <Block size={[0.9, 0.04, 0.8]} position={[0, 0.32, 0]} color={palette.graphite} />
+        <Block size={[0.04, 0.5, 0.9]} position={[-0.47, 0.55, 0]} color={palette.panel} />
+        <Block size={[0.04, 0.5, 0.9]} position={[0.47, 0.55, 0]} color={palette.panel} />
+        {state === 'busy' && <Block size={[0.42, 0.26, 0.6]} radius={0.05} position={[0, 0.47, 0.02]} color={palette.luggage[0]} />}
+      </group>
+      <Rod radius={0.035} length={2.2} position={[-0.4, 1.1, -0.36]} color={palette.steel} />
+      <Block size={[1.0, 0.42, 0.08]} position={[-0.4, 2.25, -0.36]} color={closed ? palette.panel : palette.yellow} />
+      <Print
+        width={0.94}
+        height={0.36}
+        position={[-0.4, 2.25, -0.315]}
+        deps={[state, number]}
+        draw={(ctx, w, h) => {
+          ctx.fillStyle = closed ? palette.panel : palette.yellow
+          ctx.fillRect(0, 0, w, h)
+          ctx.fillStyle = palette.ink
+          ctx.textBaseline = 'middle'
+          ctx.font = `700 ${h * 0.56}px Inter, sans-serif`
+          ctx.fillText(String(number), w * 0.05, h * 0.54)
+          ctx.font = `700 ${h * 0.2}px Inter, sans-serif`
+          ctx.fillText('BAG DROP', w * 0.36, h * 0.36)
+          ctx.font = `700 ${h * 0.24}px Vazirmatn, Tahoma, sans-serif`
+          ctx.fillText('تحویل بار', w * 0.36, h * 0.7)
+        }}
+      />
     </group>
   )
 }

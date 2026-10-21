@@ -106,3 +106,28 @@ export function ServiceDesk({ label }: { label: string }) {
     </group>
   )
 }
+
+/* ------------------------------------------------------------------ */
+/* Self-boarding e-gate — scanner pedestals with glass flaps.         */
+/* Passengers walk through toward -Z. Flaps open while boarding.      */
+/* ------------------------------------------------------------------ */
+
+export function EGate({ open = false }: { open?: boolean }) {
+  return (
+    <group>
+      {[-0.46, 0.46].map((x) => (
+        <group key={x} position={[x, 0, 0]}>
+          <Block size={[0.2, 1.0, 0.95]} position={[0, 0.5, 0]} />
+          <Block size={[0.21, 0.06, 0.96]} position={[0, 1.0, 0]} color={palette.blue} />
+          <Lamp tone={open ? 'ok' : 'idle'} radius={0.03} position={[0, 1.05, 0.38]} />
+        </group>
+      ))}
+      <Block size={[0.24, 0.08, 0.16]} position={[0.46, 1.1, 0.3]} rotation={[-0.4, 0, 0]} color={palette.graphite} />
+      {[-1, 1].map((s) => (
+        <mesh key={s} position={[s * 0.18, 0.75, 0]} rotation={[0, open ? s * 1.25 : 0, 0]} material={glass}>
+          <boxGeometry args={[0.34, 0.6, 0.02]} />
+        </mesh>
+      ))}
+    </group>
+  )
+}

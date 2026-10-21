@@ -1,0 +1,272 @@
+/* Experiments lab: a scrolling page using the same tokens and cards as the twin. */
+
+.lab {
+  position: fixed;
+  inset: 0;
+  overflow-y: auto;
+  background: var(--sky);
+}
+
+.lab .brand {
+  position: relative;
+  top: 0;
+  left: 0;
+  margin: 20px 0 0 20px;
+  width: max-content;
+  z-index: 2;
+}
+
+.lab__grid {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 20px;
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 20px 20px 40px;
+}
+
+.lab__config {
+  align-self: start;
+  position: sticky;
+  top: 20px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lab__config .insp__title {
+  font-size: var(--text-lg);
+}
+
+.lab__designs {
+  display: grid;
+  gap: 8px;
+}
+
+.lab__design {
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  box-shadow: inset 3px 0 0 var(--series);
+}
+
+.lab__design-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.lab__design-head i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--series);
+}
+
+.lab__design-head span {
+  margin-left: auto;
+  font-family: Vazirmatn, Tahoma, sans-serif;
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+
+.lab__design ul {
+  margin: 0 0 6px;
+  padding-left: 18px;
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
+
+.lab__presets button {
+  height: 30px;
+  font-size: 12px;
+}
+
+.lab__go {
+  margin-top: 4px;
+}
+
+.lab__progress {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.lab__progress span {
+  display: block;
+  height: 100%;
+  background: var(--blue);
+  transition: width 0.25s var(--ease);
+}
+
+.lab__results {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.lab__empty,
+.lab__headline {
+  padding: 24px;
+}
+
+.lab__headline h2 {
+  margin: 10px 0 0;
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+}
+
+.lab__headline h2 b {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.lab__table-card {
+  padding: 16px 20px 8px;
+  overflow-x: auto;
+}
+
+.lab__legend {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 8px;
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+.lab__legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lab__legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.lab__legend .note {
+  margin: 0 0 0 auto;
+}
+
+.lab__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.lab__table th {
+  padding: 8px 10px;
+  text-align: left;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--ink-muted);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.lab__table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.lab__table td:first-child {
+  font-weight: 500;
+}
+
+.lab__table small {
+  color: var(--ink-faint);
+}
+
+.lab__table svg {
+  display: block;
+}
+
+.lab__charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: 16px;
+}
+
+.chart {
+  margin: 0;
+  padding: 16px 18px 10px;
+}
+
+.chart figcaption {
+  margin-bottom: 8px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.chart__plot {
+  position: relative;
+}
+
+.chart__plot svg {
+  display: block;
+  overflow: visible;
+  cursor: crosshair;
+}
+
+.chart__tick {
+  font-size: 10px;
+  fill: var(--ink-faint);
+}
+
+.chart__label {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.chart__tip {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--ink);
+  color: #fff;
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart__tip span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart__tip i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+@media (max-width: 960px) {
+  .lab__grid {
+    grid-template-columns: 1fr;
+  }
+  .lab__config {
+    position: static;
+  }
+}

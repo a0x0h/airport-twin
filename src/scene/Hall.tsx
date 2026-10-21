@@ -8,14 +8,14 @@ import { useHall, type Zone } from '../hallStore'
 import { glass, surface } from '../kit/materials'
 import { Aircraft, JetBridge } from '../kit/objects/aircraft'
 import { BaggageCart, BaggageTug } from '../kit/objects/airside'
-import { GatePodium, ServiceDesk, ShopFront } from '../kit/objects/gate'
+import { EGate, GatePodium, ServiceDesk, ShopFront } from '../kit/objects/gate'
 import { Bench, CafeCounter, CafeTable, CanopyRoof, CANOPY_Y, Car, CurbLight, FA, FlowerBox, Lift, Lightbox, PalmPlanter, PrayerRugs, StreetLamp, TreeColumn } from '../kit/objects/mashhad'
 import { Person, PersonLite, type Motion } from '../kit/objects/Person'
-import { ReclaimTable, SearchStation, Tray, WalkthroughArch, XRayScanner } from '../kit/objects/security'
-import { CheckInCounter, FlightBoard, Planter, QueueLane, SeatingRow, type BoardRow } from '../kit/objects/terminal'
+import { ReclaimTable, SearchStation, Tray, TrayReturn, WalkthroughArch, XRayScanner } from '../kit/objects/security'
+import { BagDrop, CheckInCounter, FlightBoard, Planter, QueueLane, SeatingRow, type BoardRow } from '../kit/objects/terminal'
 import { Block, Print, Rod } from '../kit/primitives'
 import { aircraftAt, AIRCRAFT_LENGTH, APRON, bridgeRoot, CAFE, CONC, LIFT_AT, PRAYER, doorPoint, gates as gateSpots, NOSE_Z, REBOOK, SHOP, STAND_X, TAXIWAY_Z, type AircraftPose, type GateSpot } from '../sim/airside'
-import { counters as spots, DOOR, EXIT, HALL, SEC_EXIT, lanes as laneSpots, queueOrigin, queueSpec, queueYaw, SEC, secQueueOrigin, secQueueSpec, secQueueYaw } from '../sim/hallLayout'
+import { DOOR, EXIT, HALL, SEC_EXIT, queueOrigin, queueSpec, queueYaw, SEC, secQueueOrigin, secQueueSpec, secQueueYaw } from '../sim/hallLayout'
 import { DAY_START, hourOfDay, type Counter, type Lane, type Officer, type Pax } from '../sim/hallSim'
 import { DayLight, LightPools, sky, useNightGlow } from './daylight'
 import { BAYS, CANOPY, CANOPY_COLUMNS, CURB_Z, DROP_Z, PLAZA, ROAD, TAXI_RANK, THROUGH_Z, vehiclePose, type Vehicle } from '../sim/landside'
@@ -212,6 +212,7 @@ function Holdroom({ g }: { g: GateSpot }) {
   useHall((st) => st.version)
   const sim = useHall((st) => st.sim)
   const gate = sim.gates[g.stand]
+  const design = useHall((st) => st.params.design)
   const { ref, selected, hovered, handlers } = useSelectable('gate', g.stand)
   return (
     <group>
@@ -228,6 +229,11 @@ function Holdroom({ g }: { g: GateSpot }) {
         <group position={[g.podium[0], 0, g.podium[1]]}>
           <GatePodium boarding={gate.queue.length > 0 || gate.scanning !== null} />
         </group>
+        {design === 'proposed' && (
+          <group position={[g.hx - 2, 0, -15.75]}>
+            <EGate open={gate.scanning !== null} />
+          </group>
+        )}
         {(selected || hovered) && (
           <group position={[g.hx, 0, -13.75]}>
             <Brackets w={18.4} d={6.4} color={selected ? palette.blue : '#a9bcf6'} />
@@ -474,6 +480,7 @@ function Traffic() {
 
 function Building() {
   const walls = useHall((st) => st.layers.walls)
+  const design = useHall((st) => st.params.design)
   const doorHalf = 1.0
   const exitHalf = 1.1
   const { maxZ, minZ, maxX } = HALL
@@ -566,8 +573,8 @@ function Building() {
       <Portal at={EXIT} yaw={Math.PI / 2} width={2 * exitHalf + 0.4} label="Security" fa="بازرسی" />
       {walls !== 'off' && <Portal at={[SEC_EXIT[0], SEC_EXIT[1] + 0.2]} yaw={0} width={2.8} label="Gates A1–A3" fa="گیت‌ها" />}
 
-      <Fascia x={0} z={-6.6} width={10} title="Check-in" sub="Counters 11 – 15" fa="پذیرش" />
-      <Fascia x={-25} z={-6.6} width={9} title="Security" sub="Lanes 1 – 3" fa="بازرسی" />
+      <Fascia x={0} z={-6.6} width={design === 'proposed' ? 12 : 10} title="Check-in" sub={design === 'proposed' ? 'Counters 11 – 14 · Bag drop 15 – 17' : 'Counters 11 – 15'} fa="پذیرش" />
+      <Fascia x={-25} z={-6.6} width={9} title="Security" sub={design === 'proposed' ? 'Smart lanes 1 – 4' : 'Lanes 1 – 3'} fa="بازرسی" />
 
       {/* decor */}
       <group position={[-9.6, 0, 2.6]}>
@@ -837,9 +844,9 @@ function CounterView({ index }: { index: number }) {
   const { ref, selected, hovered, handlers } = useSelectable('counter', c.spot.id)
   return (
     <group ref={ref} position={[c.spot.at[0], 0, c.spot.at[1]]} {...handlers}>
-      <CheckInCounter state={counterState(c)} number={c.spot.number} />
-      {(selected || hovered) && <Brackets w={3.0} d={2.0} color={selected ? palette.blue : '#a9bcf6'} />}
-      {(selected || hovered) && <Chip y={2.95} code={`CK-${c.spot.number}`} text={counterLabel(c)} solid={selected} />}
+      {c.spot.kind === 'bagdrop' ? <BagDrop state={counterState(c)} number={c.spot.number} /> : <CheckInCounter state={counterState(c)} number={c.spot.number} />}
+      {(selected || hovered) && <Brackets w={2.8} d={2.0} color={selected ? palette.blue : '#a9bcf6'} />}
+      {(selected || hovered) && <Chip y={2.95} code={`${c.spot.kind === 'bagdrop' ? 'BD' : 'CK'}-${c.spot.number}`} text={counterLabel(c)} solid={selected} />}
     </group>
   )
 }
@@ -858,24 +865,24 @@ export function laneLabel(l: Lane, sim: { pax: Map<number, Pax> }) {
   return 'Open'
 }
 
-function LaneSign({ n }: { n: number }) {
+function LaneSign({ n, smart = false }: { n: number; smart?: boolean }) {
   return (
     <group>
       <Rod radius={0.035} length={2.2} position={[0, 1.1, 0]} color={palette.steel} />
-      <Block size={[0.7, 0.42, 0.08]} position={[0, 2.25, 0]} color={palette.blue} />
+      <Block size={[0.7, 0.42, 0.08]} position={[0, 2.25, 0]} color={smart ? palette.ok : palette.blue} />
       <Print
         width={0.64}
         height={0.36}
         position={[0, 2.25, 0.045]}
         draw={(ctx, w, h) => {
-          ctx.fillStyle = palette.blue
+          ctx.fillStyle = smart ? palette.ok : palette.blue
           ctx.fillRect(0, 0, w, h)
           ctx.fillStyle = '#fff'
           ctx.font = `700 ${h * 0.62}px Inter, sans-serif`
           ctx.textBaseline = 'middle'
           ctx.fillText(String(n), w * 0.08, h * 0.54)
           ctx.font = `600 ${h * 0.22}px Inter, sans-serif`
-          ctx.fillText('LANE', w * 0.44, h * 0.5)
+          ctx.fillText(smart ? 'SMART' : 'LANE', w * 0.44, h * 0.5)
         }}
       />
     </group>
@@ -902,6 +909,11 @@ function LaneView({ index }: { index: number }) {
       <group position={[-27.75, 0, sp.at[1]]}>
         <ReclaimTable />
       </group>
+      {sp.smart && (
+        <group position={[-25.6, 0, sp.at[1] - 0.86]}>
+          <TrayReturn />
+        </group>
+      )}
       <group position={[sp.arch[0], 0, sp.arch[1]]} rotation={[0, Math.PI / 2, 0]}>
         <WalkthroughArch state={!l.open && l.arch === null ? 'off' : alarm ? 'alarm' : 'clear'} />
       </group>
@@ -909,13 +921,28 @@ function LaneView({ index }: { index: number }) {
         <SearchStation active={l.hold !== null} />
       </group>
       <group position={[-22.4, 0, sp.at[1] - 0.8]}>
-        <LaneSign n={sp.number} />
+        <LaneSign n={sp.number} smart={sp.smart} />
       </group>
       <group position={[sp.at[0] - 1.4, 0, sp.at[1] + 1.2]}>
         {(selected || hovered) && <Brackets w={7.6} d={3.6} color={selected ? palette.blue : '#a9bcf6'} />}
         {(selected || hovered) && <Chip y={2.9} code={`Lane ${sp.number}`} text={label} solid={selected} />}
       </group>
     </group>
+  )
+}
+
+/** Counters and lanes come from the running design, so switching designs rebuilds them. */
+function Processors() {
+  const sim = useHall((st) => st.sim)
+  return (
+    <>
+      {sim.counters.map((c, i) => (
+        <CounterView key={`${sim.runId}:${c.spot.id}`} index={i} />
+      ))}
+      {sim.lanes.map((l, i) => (
+        <LaneView key={`${sim.runId}:${l.spot.id}`} index={i} />
+      ))}
+    </>
   )
 }
 
@@ -1034,8 +1061,19 @@ const ringGeo = new THREE.RingGeometry(0.34, 0.42, 40)
 /** Below this camera zoom, people render as low-detail stand-ins. */
 const LOD_ZOOM = 32
 
+/** Mood marker: a small gem above the head, coloured by mood band. */
+// Sits just above the hair: higher markers drift away from their owners in the isometric view.
+const moodGeo = new THREE.OctahedronGeometry(0.1, 0)
+const moodMats = {
+  good: new THREE.MeshStandardMaterial({ color: palette.ok, emissive: palette.ok, emissiveIntensity: 0.6, roughness: 0.3 }),
+  meh: new THREE.MeshStandardMaterial({ color: palette.warn, emissive: palette.warn, emissiveIntensity: 0.6, roughness: 0.3 }),
+  bad: new THREE.MeshStandardMaterial({ color: palette.fault, emissive: palette.fault, emissiveIntensity: 0.7, roughness: 0.3 }),
+}
+export const moodBand = (m: number) => (m >= 0.66 ? 'good' : m >= 0.33 ? 'meh' : 'bad')
+
 const Agent = memo(function Agent({ p, hasBag, phase }: { p: Pax; hasBag: boolean; phase: Pax['phase'] }) {
   const ref = useRef<THREE.Group>(null)
+  const marker = useRef<THREE.Mesh>(null)
   const full = useRef<THREE.Group>(null)
   const lite = useRef<THREE.Group>(null)
   const motion = useMemo<Motion>(() => ({ stride: Math.random() * 6, amount: 0 }), [])
@@ -1063,6 +1101,15 @@ const Agent = memo(function Agent({ p, hasBag, phase }: { p: Pax; hasBag: boolea
     motion.stride += dist * 5.2
     const walking = dist > 0.0005 ? 1 : 0
     motion.amount += (walking - motion.amount) * Math.min(1, dt * 8)
+    const m = marker.current
+    if (m) {
+      m.visible = useHall.getState().overlays.moods
+      if (m.visible) {
+        m.material = moodMats[moodBand(p.mood)]
+        m.rotation.y += dt * 2
+        m.position.y = 1.97 + Math.sin(performance.now() / 400 + p.id) * 0.025
+      }
+    }
   })
 
   return (
@@ -1087,6 +1134,7 @@ const Agent = memo(function Agent({ p, hasBag, phase }: { p: Pax; hasBag: boolea
       <group ref={full}>
         <Person look={p.look} motion={motion} showBag={hasBag} phase={p.id * 0.7} pose={phase === 'seated' || phase === 'cafeSeated' ? 'sit' : 'stand'} />
       </group>
+      <mesh ref={marker} geometry={moodGeo} material={moodMats.good} position={[0, 1.97, 0]} visible={false} />
       <group ref={lite} visible={false}>
         <PersonLite look={p.look} pose={phase === 'seated' || phase === 'cafeSeated' ? 'sit' : 'stand'} />
       </group>
@@ -1113,8 +1161,109 @@ function Crowd() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Crowding heatmap                                                    */
+/* ------------------------------------------------------------------ */
+
+/** Floor area covered by the heatmap (terminal, concourse and forecourt). */
+const HEAT = { minX: -40, maxX: 88, minZ: -18, maxZ: 18, res: 2 }
+const HEAT_W = (HEAT.maxX - HEAT.minX) * HEAT.res
+const HEAT_H = (HEAT.maxZ - HEAT.minZ) * HEAT.res
+/** People per m² shown at full colour. */
+export const HEAT_PEAK = 1.5
+
+/** Sequential blue ramp, light to dark, with alpha rising from zero. */
+const RAMP = [
+  [223, 232, 255],
+  [79, 124, 255],
+  [29, 63, 179],
+  [20, 26, 107],
+]
+function rampAt(u: number) {
+  const k = Math.min(RAMP.length - 1.001, u * (RAMP.length - 1))
+  const i = Math.floor(k)
+  const f = k - i
+  return RAMP[i].map((c, j) => c + (RAMP[i + 1][j] - c) * f)
+}
+
+function CrowdHeat() {
+  const on = useHall((st) => st.overlays.crowding)
+  const { canvas, texture, grid, kernel, R } = useMemo(() => {
+    const c = document.createElement('canvas')
+    c.width = HEAT_W
+    c.height = HEAT_H
+    const t = new THREE.CanvasTexture(c)
+    t.colorSpace = THREE.SRGBColorSpace
+    t.magFilter = THREE.LinearFilter
+    // Gaussian splat ~1.2 m radius, normalised so each person adds 1 person in total.
+    const rad = 3
+    const k: number[] = []
+    let sum = 0
+    for (let dz = -rad; dz <= rad; dz++)
+      for (let dx = -rad; dx <= rad; dx++) {
+        const w = Math.exp(-(dx * dx + dz * dz) / (2 * 1.4 * 1.4))
+        k.push(w)
+        sum += w
+      }
+    const cellArea = 1 / (HEAT.res * HEAT.res)
+    return { canvas: c, texture: t, grid: new Float32Array(HEAT_W * HEAT_H), kernel: k.map((w) => w / sum / cellArea), R: rad }
+  }, [])
+  const since = useRef(1)
+
+  useFrame((_, dt) => {
+    if (!on) return
+    since.current += dt
+    if (since.current < 0.4) return
+    since.current = 0
+    grid.fill(0)
+    const sim = useHall.getState().sim
+    for (const p of sim.pax.values()) {
+      if (p.phase === 'shopping' || p.y > 0.5) continue
+      const cx = Math.round((p.x - HEAT.minX) * HEAT.res)
+      const cz = Math.round((p.z - HEAT.minZ) * HEAT.res)
+      let ki = 0
+      for (let dz = -R; dz <= R; dz++)
+        for (let dx = -R; dx <= R; dx++, ki++) {
+          const x = cx + dx
+          const z = cz + dz
+          if (x >= 0 && z >= 0 && x < HEAT_W && z < HEAT_H) grid[z * HEAT_W + x] += kernel[ki]
+        }
+    }
+    const ctx = canvas.getContext('2d')!
+    const img = ctx.createImageData(HEAT_W, HEAT_H)
+    for (let i = 0; i < grid.length; i++) {
+      const u = Math.min(1, grid[i] / HEAT_PEAK)
+      if (u < 0.03) continue
+      const [r, g, b] = rampAt(u)
+      img.data[i * 4] = r
+      img.data[i * 4 + 1] = g
+      img.data[i * 4 + 2] = b
+      img.data[i * 4 + 3] = Math.round(Math.min(1, 0.25 + u) * 200)
+    }
+    ctx.putImageData(img, 0, 0)
+    texture.needsUpdate = true
+  })
+
+  if (!on) return null
+  return (
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[(HEAT.minX + HEAT.maxX) / 2, 0.06, (HEAT.minZ + HEAT.maxZ) / 2]} renderOrder={3}>
+      <planeGeometry args={[HEAT.maxX - HEAT.minX, HEAT.maxZ - HEAT.minZ]} />
+      <meshBasicMaterial map={texture} transparent depthWrite={false} toneMapped={false} />
+    </mesh>
+  )
+}
+
+/* ------------------------------------------------------------------ */
 /* Simulation clock                                                    */
 /* ------------------------------------------------------------------ */
+
+/** Dev-only: expose the three.js scene for console inspection. */
+function DevExpose() {
+  const scene = useThree((st) => st.scene)
+  useEffect(() => {
+    if (import.meta.env.DEV) (window as unknown as { __scene: THREE.Scene }).__scene = scene
+  }, [scene])
+  return null
+}
 
 function SimDriver() {
   const sinceSync = useRef(0)
@@ -1278,12 +1427,8 @@ export function Hall() {
       <group position={[secQueueOrigin[0], 0, secQueueOrigin[1]]} rotation={[0, secQueueYaw, 0]}>
         <QueueLane {...secQueueSpec} />
       </group>
-      {spots.map((_, i) => (
-        <CounterView key={i} index={i} />
-      ))}
-      {laneSpots.map((_, i) => (
-        <LaneView key={i} index={i} />
-      ))}
+      <Processors />
+      <CrowdHeat />
       <Trays />
       <Officers />
       <Crowd />
@@ -1292,6 +1437,7 @@ export function Hall() {
       ))}
       <Bridges />
       <SimDriver />
+      <DevExpose />
       <Director />
     </Canvas>
   )

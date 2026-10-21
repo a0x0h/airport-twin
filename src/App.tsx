@@ -5,8 +5,10 @@ import { Hall } from './scene/Hall'
 import type { Route } from './ui/common'
 import { HallOverlay } from './ui/HallOverlay'
 import { Overlay } from './ui/Overlay'
+import { Lab } from './ui/Lab'
+import './lab.css'
 
-const readRoute = (): Route => (location.hash === '#/kit' ? 'kit' : 'hall')
+const readRoute = (): Route => (location.hash === '#/kit' ? 'kit' : location.hash === '#/lab' ? 'lab' : 'hall')
 
 export function App() {
   const [route, setRoute] = useState<Route>(readRoute)
@@ -20,8 +22,16 @@ export function App() {
 
   return (
     <>
-      <div className="stage" ref={setStage}>{route === 'hall' ? <Hall /> : <Diorama />}</div>
-      {route === 'hall' ? <HallOverlay /> : <Overlay />}
+      {route === 'lab' ? (
+        <Lab />
+      ) : (
+        <>
+          <div className="stage" ref={setStage}>
+            {route === 'hall' ? <Hall /> : <Diorama />}
+          </div>
+          {route === 'hall' ? <HallOverlay /> : <Overlay />}
+        </>
+      )}
     </>
   )
 }

@@ -1138,3 +1138,99 @@
 .field-row .segmented--compact button {
   padding: 0 10px;
 }
+
+/* ---------- v0.7: designs, overlays ---------- */
+
+.design-switch {
+  margin: -4px -4px 16px;
+}
+
+.design-switch button {
+  height: 32px;
+  gap: 8px;
+}
+
+.design-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+  opacity: 1 !important;
+}
+
+/* Same validated series colours as the Lab charts. */
+.design-dot--today {
+  background: #d4730f;
+}
+
+.design-dot--proposed {
+  background: #2b5cf0;
+}
+
+.design-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+  line-height: 1.7;
+}
+
+.section__aside a {
+  color: var(--blue);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.section__aside a:hover {
+  text-decoration: underline;
+}
+
+.legends {
+  position: absolute;
+  left: 20px;
+  bottom: 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+}
+
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--ink-muted);
+}
+
+.legend b {
+  min-width: 64px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legend i {
+  width: 9px;
+  height: 9px;
+  transform: rotate(45deg);
+  border-radius: 2px;
+}
+
+.legend__ramp {
+  width: 120px;
+  height: 10px;
+  border-radius: 5px;
+  background: linear-gradient(to right, rgb(223 232 255 / 0.35), #4f7cff, #1d3fb3, #141a6b);
+}
+
+@media (max-width: 760px) {
+  .legends {
+    display: none;
+  }
+}

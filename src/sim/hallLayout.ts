@@ -46,18 +46,26 @@ export const queueFront: XZ = serpentine[serpentine.length - 1]
 export interface CounterSpot {
   id: string
   number: number
+  /** Staffed check-in desk, or an unstaffed self bag-drop unit. */
+  kind: 'agent' | 'bagdrop'
   /** Counter origin (footprint centre). */
   at: XZ
   /** Where the passenger stands while being served. */
   servicePoint: XZ
 }
 
-export const counters: CounterSpot[] = [-6, -3, 0, 3, 6].map((x, i) => ({
-  id: `ck-${11 + i}`,
-  number: 11 + i,
-  at: [x, -5.2],
-  servicePoint: [x - 0.4, -4.1],
-}))
+export function makeCounter(x: number, number: number, kind: CounterSpot['kind'] = 'agent'): CounterSpot {
+  return {
+    id: kind === 'agent' ? `ck-${number}` : `bd-${number}`,
+    number,
+    kind,
+    at: [x, -5.2],
+    servicePoint: [x - 0.4, -4.1],
+  }
+}
+
+/** MHD today: five staffed counters. */
+export const counters: CounterSpot[] = [-6, -3, 0, 3, 6].map((x, i) => makeCounter(x, 11 + i))
 
 const ARRIVE_LANE_Z = -2.5
 const LEAVE_LANE_Z = -3.5
@@ -107,6 +115,8 @@ const SCANNER_X = -25
 export interface LaneSpot {
   id: string
   number: number
+  /** Automated lane: parallel divest positions and powered tray return shorten divesting. */
+  smart: boolean
   /** Scanner centre; the scanner is rotated so trays travel toward -X. */
   at: XZ
   divest: XZ
@@ -122,20 +132,25 @@ export interface LaneSpot {
   beltTo: number
 }
 
-export const lanes: LaneSpot[] = [-4.5, -0.5, 3.5].map((z, i) => ({
+/** One screening lane at row `z`. Tighter lane pitches pull the search mat in (`holdDz`). */
+export const makeLane = (z: number, i: number, smart = false, holdDz = 2.55): LaneSpot => ({
   id: `sec-${i + 1}`,
   number: i + 1,
+  smart,
   at: [SCANNER_X, z],
   divest: [-23.2, z + 0.85],
   archIn: [-24.2, z + 1.3],
   arch: [SCANNER_X, z + 1.3],
   archOut: [-25.8, z + 1.3],
-  hold: [-26.8, z + 2.55],
-  searchFrom: [-26.05, z + 2.55],
+  hold: [-26.8, z + holdDz],
+  searchFrom: [-26.05, z + holdDz],
   reclaim: [-26.0, -26.6, -27.2, -27.8].map((x): XZ => [x, z + 0.85]),
   beltFrom: -23.4,
   beltTo: -27.0,
-}))
+})
+
+/** MHD today: three conventional lanes. */
+export const lanes: LaneSpot[] = [-4.5, -0.5, 3.5].map((z, i) => makeLane(z, i))
 
 export const BELT_SPEED = 0.45
 

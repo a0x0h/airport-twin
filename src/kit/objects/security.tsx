@@ -162,3 +162,21 @@ export function ReclaimTable({ length = 1.3 }: { length?: number }) {
     </group>
   )
 }
+
+/* ------------------------------------------------------------------ */
+/* Smart-lane tray return — powered belt that brings empty trays back  */
+/* under the line to the divest end, with a ready stack. Along X.      */
+/* ------------------------------------------------------------------ */
+
+export function TrayReturn({ length = 4.6 }: { length?: number }) {
+  return (
+    <group>
+      <Block size={[length, 0.36, 0.5]} position={[0, 0.18, 0]} color={palette.panel} />
+      <Block size={[length - 0.1, 0.04, 0.42]} position={[0, 0.38, 0]} color={palette.graphite} />
+      {[0, 1, 2, 3].map((i) => (
+        <Block key={i} size={[0.6, 0.07, 0.42]} radius={0.02} position={[length / 2 - 0.4, 0.44 + i * 0.075, 0]} color={palette.shell} />
+      ))}
+      <Block size={[0.5, 0.03, 0.06]} position={[0, 0.41, 0.23]} color={palette.ok} />
+    </group>
+  )
+}

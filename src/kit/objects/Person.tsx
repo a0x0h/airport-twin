@@ -75,13 +75,16 @@ export function Person({
   const legR = useRef<THREE.Group>(null)
   const armL = useRef<THREE.Group>(null)
   const armR = useRef<THREE.Group>(null)
+  const hip = pose === 'sit' ? 0.46 : 0.82
+
   useFrame(({ clock }) => {
     if (!upper.current) return
     const t = clock.elapsedTime + phase
     const walk = motion?.amount ?? 0
     const swing = Math.sin(motion?.stride ?? 0) * 0.55 * walk
     // Idle breathing and weight shift fade out as the walk cycle takes over.
-    upper.current.position.y = Math.sin(t * 1.6) * 0.006 * (1 - walk) + Math.abs(Math.cos(motion?.stride ?? 0)) * 0.025 * walk
+    // The bob rides on top of the hip height; it must never replace it.
+    upper.current.position.y = hip + Math.sin(t * 1.6) * 0.006 * (1 - walk) + Math.abs(Math.cos(motion?.stride ?? 0)) * 0.025 * walk
     upper.current.rotation.z = Math.sin(t * 0.5) * 0.02 * (1 - walk)
     if (legL.current && legR.current) {
       legL.current.rotation.x = swing
@@ -92,8 +95,6 @@ export function Person({
       armR.current.rotation.x = swing * 0.8 * (bag === 'roller' ? 0.2 : 1)
     }
   })
-
-  const hip = pose === 'sit' ? 0.46 : 0.82
 
   return (
     <group position={position} rotation={rotation}>

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import { defaultParams, HallSim, type HallParams, type HallStats } from './sim/hallSim'
+import { defaultParams, HallSim, paramsFor, type HallParams, type HallStats } from './sim/hallSim'
+import type { DesignId } from './sim/designs'
 import type { ViewCommand } from './store'
 
 export type HallSelection =
@@ -68,7 +69,7 @@ interface HallStore {
   stats: HallStats
   running: boolean
   speed: number
-  params: Pick<HallParams, TunableKey | 'seed' | 'officers' | 'dailyProfile'>
+  params: Pick<HallParams, TunableKey | 'seed' | 'officers' | 'dailyProfile' | 'design'>
   zone: Zone
   layers: Layers
   selected: HallSelection
@@ -91,6 +92,13 @@ interface HallStore {
   toggleCounter: (id: string) => void
   toggleLane: (id: string) => void
   reset: (seed?: number) => void
+  /** Rebuild the airport with another design, keeping demand settings and seed. */
+  setDesign: (d: DesignId) => void
+  /** Visual overlays. */
+  overlays: { moods: boolean; crowding: boolean }
+  setOverlay: (k: 'moods' | 'crowding', on: boolean) => void
+  sound: boolean
+  setSound: (on: boolean) => void
   view: (kind: ViewCommand['kind']) => void
   jumpTo: (t: number) => void
 }
@@ -104,6 +112,7 @@ const pick = (p: HallParams): HallStore['params'] => ({
   seed: p.seed,
   officers: p.officers,
   dailyProfile: p.dailyProfile,
+  design: p.design,
 })
 
 function apply(sim: HallSim, a: Action) {
@@ -208,6 +217,25 @@ export const useHall = create<HallStore>((set, get) => {
       set({ sim: next, runParams, actions: [], jump: null, version: -1, stats: next.stats(), selected: null, params: { ...params, seed: nextSeed } })
     },
     view: (kind) => set({ command: { kind, nonce: Math.random() } }),
+    setDesign: (design) => {
+      jumpToken++
+      const { params } = get()
+      const runParams = paramsFor(design, {
+        arrivalsPerHour: params.arrivalsPerHour,
+        dailyProfile: params.dailyProfile,
+        serviceMean: params.serviceMean,
+        divestMean: params.divestMean,
+        alarmRate: params.alarmRate,
+        searchMean: params.searchMean,
+        seed: params.seed,
+      })
+      const next = new HallSim(runParams)
+      set({ sim: next, runParams, actions: [], jump: null, version: -1, stats: next.stats(), selected: null, params: pick(runParams) })
+    },
+    overlays: { moods: false, crowding: false },
+    setOverlay: (k, on) => set((s) => ({ overlays: { ...s.overlays, [k]: on } })),
+    sound: false,
+    setSound: (sound) => set({ sound }),
 
     jumpTo: (target) => {
       const token = ++jumpToken

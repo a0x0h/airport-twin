@@ -4,8 +4,6 @@ import { pickFlight, type Flight } from '../data/flights'
 import type { XZ } from '../kit/queueGeometry'
 import {
   BELT_SPEED,
-  counters as counterSpots,
-  lanes as laneSpots,
   OFFICER_POST,
   officerRoute,
   queuePath,
@@ -27,6 +25,7 @@ import {
 import { Polyline } from './path'
 import { BOARDING_OPENS, CAFE, CHECKIN_CLOSES, concourseRoute, PRAYER, DOOR_Y, GATE_CLOSES, gates as gateSpots, nearestAisle, REBOOK, SHOP, type GateSpot } from './airside'
 import { Rng, streamSeed } from './rng'
+import { designs, type DesignId } from './designs'
 import { alightPoint, BAYS, routeCurbToDoor, VEHICLE_SPAN, type Vehicle } from './landside'
 
 /**
@@ -63,6 +62,25 @@ import { alightPoint, BAYS, routeCurbToDoor, VEHICLE_SPAN, type Vehicle } from '
  */
 
 export const STEP = 0.1
+
+/**
+ * Mood change per second by phase. Queues sour mood over ~25 min, being held
+ * or searched faster; dwelling in the café, shop or prayer room restores it.
+ */
+const MOOD_RATE: Partial<Record<string, number>> = {
+  queue: -1 / 1500,
+  secQueue: -1 / 1500,
+  cafeQueue: -1 / 2400,
+  boardQueue: -1 / 3000,
+  atArch: -1 / 600,
+  blockedDivest: -1 / 600,
+  hold: -1 / 600,
+  search: -1 / 1200,
+  reclaimWait: -1 / 900,
+  cafeSeated: 1 / 1500,
+  shopping: 1 / 2400,
+  seated: 1 / 4800,
+}
 export const DAY_START = 6 * 3600
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -72,6 +90,8 @@ export const HOURLY = [0.04, 0.02, 0.02, 0.04, 0.15, 0.4, 0.85, 1, 0.9, 0.7, 0.5
 export const WEEKLY = [1, 0.86, 0.84, 0.9, 1.06, 0.78, 0.95]
 
 export interface HallParams {
+  /** Terminal design: which counters, lanes and gate processes exist. */
+  design: DesignId
   /** Peak arrival rate, pax/h (or the constant rate when the profile is off). */
   arrivalsPerHour: number
   dailyProfile: boolean
@@ -88,7 +108,14 @@ export interface HallParams {
   openLanes: string[]
 }
 
+/** Default parameters for a design: its staffing and open processors, the shared demand. */
+export function paramsFor(design: DesignId, base: Partial<HallParams> = {}): HallParams {
+  const d = designs[design]
+  return { ...defaultParams, ...base, design, officers: d.officers, openCounters: d.openCounters, openLanes: d.openLanes }
+}
+
 export const defaultParams: HallParams = {
+  design: 'today',
   arrivalsPerHour: 150,
   dailyProfile: true,
   serviceMean: 95,
@@ -187,6 +214,8 @@ export interface Pax {
   cafeSeat: number | null
   /** End of a café visit (15–30 min), after which remaining time is spent in duty-free. */
   cafeUntil: number
+  /** Mood 0–1: sours while queuing or held, recovers while relaxing. */
+  mood: number
 }
 
 export interface Cafe {
@@ -379,6 +408,10 @@ export interface HallStats {
   boarded: number
   missed: number
   missedRate: number
+  /** Average mood at boarding (missed flights count as 0), 0–1. */
+  satisfaction: number
+  /** Average mood of passengers in the terminal right now. */
+  moodNow: number
   history: Sample[]
 }
 
@@ -390,6 +423,8 @@ let runs = 0
 export class HallSim {
   params: HallParams
   readonly runId = ++runs
+  /** Movement step, seconds. Live runs use 0.1 s; headless experiments may use a coarser step. */
+  readonly dt: number
   t = 0
   version = 0
   readonly pax = new Map<number, Pax>()
@@ -434,6 +469,8 @@ export class HallSim {
   private searches = 0
   private alarms = 0
   private journeySum = 0
+  private moodSum = 0
+  private moodCount = 0
   private journeys = 0
   private processSum = 0
   private turnedAway = 0
@@ -445,14 +482,16 @@ export class HallSim {
   history: Sample[] = []
   private nextSample = 0
 
-  constructor(params: HallParams) {
+  constructor(params: HallParams, opts: { step?: number } = {}) {
     this.params = { ...params }
+    this.dt = opts.step ?? STEP
     this.rngArrive = new Rng(streamSeed(params.seed, 1))
     this.rngService = new Rng(streamSeed(params.seed, 2))
     this.rngLook = new Rng(streamSeed(params.seed, 3))
     this.rngSec = new Rng(streamSeed(params.seed, 4))
     this.rngCurb = new Rng(streamSeed(params.seed, 5))
-    this.counters = counterSpots.map((spot) => ({
+    const design = designs[params.design ?? 'today']
+    this.counters = design.counters.map((spot) => ({
       spot,
       open: params.openCounters.includes(spot.id),
       closing: false,
@@ -464,7 +503,7 @@ export class HallSim {
       openTime: 0,
       serviceTotal: 0,
     }))
-    this.lanes = laneSpots.map((spot) => ({
+    this.lanes = design.lanes.map((spot) => ({
       spot,
       open: params.openLanes.includes(spot.id),
       closing: false,
@@ -541,9 +580,9 @@ export class HallSim {
   /** Advance simulated time by `dt` seconds. */
   advance(dt: number) {
     this.acc += Math.min(dt, 600)
-    while (this.acc >= STEP) {
+    while (this.acc >= this.dt) {
       this.step()
-      this.acc -= STEP
+      this.acc -= this.dt
     }
   }
 
@@ -553,11 +592,11 @@ export class HallSim {
    */
   advanceTo(t: number) {
     this.acc = 0
-    while (this.t + STEP <= t + 1e-6) this.step()
+    while (this.t + this.dt <= t + 1e-6) this.step()
   }
 
   private step() {
-    const tEnd = this.t + STEP
+    const tEnd = this.t + this.dt
     while (this.cal.size && this.cal.peek()!.t <= tEnd) {
       const e = this.cal.pop()!
       this.t = e.t
@@ -591,26 +630,26 @@ export class HallSim {
     }
     this.t = tEnd
 
-    this.queueArea += this.queue.length * STEP
+    this.queueArea += this.queue.length * this.dt
     for (const c of this.counters) {
-      if (c.open || c.pax !== null) c.openTime += STEP
-      if (c.pax !== null) c.busyTime += STEP
+      if (c.open || c.pax !== null) c.openTime += this.dt
+      if (c.pax !== null) c.busyTime += this.dt
     }
     for (const l of this.lanes) {
-      if (l.open) l.openTime += STEP
+      if (l.open) l.openTime += this.dt
       const archWaiting = l.arch !== null && this.pax.get(l.arch)!.phase === 'atArch'
       const divestWaiting = l.divest !== null && this.pax.get(l.divest)!.phase === 'blockedDivest'
-      if (archWaiting || divestWaiting) l.blockedTime += STEP
+      if (archWaiting || divestWaiting) l.blockedTime += this.dt
     }
     for (const o of this.officers) {
-      this.officerTime += STEP
+      this.officerTime += this.dt
       if (o.state === 'toSearch' || o.state === 'searching') {
-        o.busyTime += STEP
-        this.officerBusy += STEP
+        o.busyTime += this.dt
+        this.officerBusy += this.dt
       }
     }
 
-    this.move(STEP)
+    this.move(this.dt)
     this.dispatch()
     this.dispatchSecurity()
     this.updateGates()
@@ -680,6 +719,7 @@ export class HallSim {
       cafeServer: null,
       cafeSeat: null,
       cafeUntil: 0,
+      mood: 0.78 + r.next() * 0.2,
     }
     let rec = this.flights.get(flightKey)
     if (!rec) {
@@ -722,7 +762,7 @@ export class HallSim {
     p.phase = 'service'
     p.yaw = Math.PI
     p.serviceStart = this.t
-    p.serviceDur = Math.max(25, this.rngService.lognormal(this.params.serviceMean, this.params.serviceCv))
+    p.serviceDur = Math.max(this.counters[p.counter!].spot.kind === 'bagdrop' ? 15 : 25, this.serviceFactor(p) * this.rngService.lognormal(this.params.serviceMean, this.params.serviceCv))
     if (p.look.bag === 'roller') p.hasBag = false
     c.phase = 'service'
     this.cal.push({ t: this.t + p.serviceDur, kind: 'serviceEnd', ref: p.counter! })
@@ -809,7 +849,7 @@ export class HallSim {
     p.phase = 'divest'
     p.yaw = Math.PI
     p.actStart = this.t
-    p.actDur = Math.max(10, this.rngSec.lognormal(this.params.divestMean, 0.5))
+    p.actDur = Math.max(8, (this.lanes[p.lane!].spot.smart ? designs[this.params.design].smartDivestFactor : 1) * this.rngSec.lognormal(this.params.divestMean, 0.5))
     this.cal.push({ t: this.t + p.actDur, kind: 'divestEnd', ref: p.lane! })
     this.version++
   }
@@ -1167,6 +1207,9 @@ export class HallSim {
   }
 
   private markMissed(p: Pax) {
+    // A missed flight counts as a fully unhappy passenger.
+    p.mood = 0
+    this.moodCount++
     p.missed = true
     this.missed++
     const rec = this.flights.get(p.flightKey)
@@ -1232,7 +1275,7 @@ export class HallSim {
       head.phase = 'scan'
       head.yaw = -Math.PI / 2
       head.actStart = this.t
-      head.actDur = Math.max(3, this.rngService.lognormal(7, 0.4))
+      head.actDur = Math.max(2, this.rngService.lognormal(designs[this.params.design].scanMean, 0.4))
       this.cal.push({ t: this.t + head.actDur, kind: 'scanEnd', ref: gi })
       this.version++
     })
@@ -1247,7 +1290,13 @@ export class HallSim {
     this.walk(p, 'boarding', g.spot.boardRoute)
   }
 
+  private serviceFactor(p: Pax) {
+    return this.counters[p.counter!].spot.kind === 'bagdrop' ? designs[this.params.design].bagDropFactor : 1
+  }
+
   private board(p: Pax) {
+    this.moodSum += p.mood
+    this.moodCount++
     const g = this.gateOf(p)
     g.boarded++
     this.boarded++
@@ -1288,6 +1337,7 @@ export class HallSim {
     this.moveQueue(this.cafe.queue, CAFE.queuePath, dt)
 
     for (const p of this.pax.values()) {
+      p.mood = Math.min(1, Math.max(0, p.mood + (MOOD_RATE[p.phase] ?? 0) * dt))
       if (p.phase === 'reclaimWait') {
         const tray = this.trays.get(p.id)
         if (!tray || this.t >= tray.arriveAt) this.startReclaim(p)
@@ -1534,6 +1584,8 @@ export class HallSim {
       boarded: this.boarded,
       missed: this.missed,
       missedRate: this.boarded + this.missed ? this.missed / (this.boarded + this.missed) : 0,
+      satisfaction: this.moodCount ? this.moodSum / this.moodCount : 1,
+      moodNow: this.pax.size ? [...this.pax.values()].reduce((a, p) => a + p.mood, 0) / this.pax.size : 1,
       history: this.history,
     }
   }

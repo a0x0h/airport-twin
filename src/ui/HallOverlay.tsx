@@ -1,9 +1,11 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { flightStatus, hhmm, upcoming, type FlightStatus } from '../data/flights'
 import type { StateTone } from '../design/tokens'
 import { toneColor } from '../design/tokens'
 import { presetOf, SPEEDS, useHall, WALL_PRESETS, type Layers, type Zone } from '../hallStore'
-import { counterLabel, laneLabel, phaseLabel } from '../scene/Hall'
+import { counterLabel, HEAT_PEAK, laneLabel, moodBand, phaseLabel } from '../scene/Hall'
+import { designs, type DesignId } from '../sim/designs'
+import { chime, setCrowd, startAmbience, stopAmbience } from './sound'
 import { aircraftAt, BOARDING_OPENS, gates as gateSpots } from '../sim/airside'
 import { clock, DAY_START, dayLabel, hourOfDay, HOURLY, mmss, WEEKLY, type Counter, type Gate, type HallSim, type Lane, type Pax, type Sample } from '../sim/hallSim'
 import { Brand, Icon, icons, Row, Tools } from './common'
@@ -11,6 +13,8 @@ import { Timeline } from './Timeline'
 
 /** Average walk from queue head to a counter, added to service when estimating load. */
 const WALKUP_S = 8
+
+const counterCode = (c: Counter) => `${c.spot.kind === 'bagdrop' ? 'BD' : 'CK'}-${c.spot.number}`
 
 const counterTone = (c: Counter): StateTone =>
   c.closing ? 'warn' : !c.open && c.pax === null ? 'idle' : c.phase === 'service' ? 'warn' : 'ok'
@@ -305,9 +309,19 @@ function TerminalTab() {
   const setParam = useHall((s) => s.setParam)
   const setDaily = useHall((s) => s.setDailyProfile)
   const reset = useHall((s) => s.reset)
+  const setDesign = useHall((s) => s.setDesign)
   const [seed, setSeed] = useState(String(params.seed))
+  const design = designs[params.design]
   return (
     <>
+      <div className="segmented design-switch" role="radiogroup" aria-label="Design">
+        {(['today', 'proposed'] as DesignId[]).map((id) => (
+          <button key={id} role="radio" aria-checked={params.design === id} className={params.design === id ? 'on' : ''} onClick={() => params.design !== id && setDesign(id)}>
+            <i className={`design-dot design-dot--${id}`} />
+            {designs[id].label}
+          </button>
+        ))}
+      </div>
       <div className="insp__head">
         <h2 className="insp__title">Mashhad International</h2>
         <p className="insp__desc">MHD · Shahid Hashemi Nejad. Passengers are dropped at the curb, check in, clear security, dwell airside and board. Demand follows the time of day and the day of the week.</p>
@@ -319,7 +333,16 @@ function TerminalTab() {
         <Kpi label="Security queue" value={stats.secInQueue} sub={`avg ${mmss(stats.secAvgWait)}`} />
         <Kpi label="Boarded" value={stats.boarded} sub={`${stats.atGates} at gates now`} />
         <Kpi label="Missed flights" value={<span className={stats.missed ? 'tone tone--fault' : ''}>{stats.missed}</span>} sub={`${(stats.missedRate * 100).toFixed(1)}% of departures`} />
+        <Kpi label="Satisfaction" value={`${Math.round(stats.satisfaction * 100)}%`} sub="mood at boarding" />
+        <Kpi label="Mood now" value={`${Math.round(stats.moodNow * 100)}%`} sub="everyone inside" />
       </div>
+      <Section title={`Design · ${design.fa}`} aside={<a href="#/lab">Compare in the Lab →</a>}>
+        <ul className="design-list">
+          {design.changes.map((c) => (
+            <li key={c}>{c}</li>
+          ))}
+        </ul>
+      </Section>
       <Section title="Demand today" aside={`${Math.round(stats.demandNow)} pax/h now`}>
         <DemandChart />
       </Section>
@@ -370,7 +393,7 @@ function CheckinTab() {
     <>
       <div className="insp__head">
         <h2 className="insp__title">Check-in</h2>
-        <p className="insp__desc">One FIFO queue feeds five counters. Check-in times vary (lognormal).</p>
+        <p className="insp__desc">{`One FIFO queue feeds ${sim.counters.length} counters${sim.counters.some((c) => c.spot.kind === "bagdrop") ? ", three of them self bag-drop units" : ""}.`} Check-in times vary (lognormal).</p>
       </div>
       <div className="kpis">
         <Kpi label="In queue" value={stats.inQueue} sub={`oldest ${mmss(stats.oldestWait)}`} />
@@ -387,7 +410,7 @@ function CheckinTab() {
             const util = c.openTime > 0 ? c.busyTime / c.openTime : 0
             return (
               <button key={c.spot.id} className="counter" onClick={() => select({ kind: 'counter', id: c.spot.id })}>
-                <span className="counter__code">CK-{c.spot.number}</span>
+                <span className="counter__code">{counterCode(c)}</span>
                 <span className="counter__state">
                   <i style={{ background: toneColor[counterTone(c)] }} />
                   {counterLabel(c)}
@@ -702,9 +725,9 @@ function CounterDetail({ id }: { id: string }) {
       <div className="insp__head">
         <div className="insp__meta">
           <span className={`pill pill--${counterTone(c)}`}>{counterLabel(c)}</span>
-          <span className="insp__code">CK-{c.spot.number}</span>
+          <span className="insp__code">{counterCode(c)}</span>
         </div>
-        <h2 className="insp__title">Counter {c.spot.number}</h2>
+        <h2 className="insp__title">{c.spot.kind === 'bagdrop' ? 'Self bag drop' : 'Counter'} {c.spot.number}</h2>
         <p className="insp__desc">Calls the next passenger as soon as it is free. Closing lets the current passenger finish first.</p>
       </div>
       {p && p.phase === 'service' && p.serviceStart !== null ? (
@@ -830,6 +853,14 @@ function PaxDetail({ id }: { id: number }) {
       {p.actStart !== null && p.actDur !== null && <Progress head={phaseLabel[p.phase]} code={lane ? `Lane ${lane.spot.number}` : ''} start={p.actStart} dur={p.actDur} t={t} />}
       <div className="rows">
         <Row k="In terminal" v={mmss(t - p.arrivedAt)} />
+        <Row
+          k="Mood"
+          v={
+            <span className={`tone tone--${moodBand(p.mood) === 'good' ? 'ok' : moodBand(p.mood) === 'meh' ? 'warn' : 'fault'}`}>
+              {moodBand(p.mood) === 'good' ? 'Content' : moodBand(p.mood) === 'meh' ? 'Impatient' : 'Upset'} · {Math.round(p.mood * 100)}%
+            </span>
+          }
+        />
         <Row k={p.depAt > t ? 'Departs in' : 'Departed'} v={<span className={p.depAt - t < 15 * 60 && !p.missed ? 'tone tone--fault' : ''}>{mmss(Math.abs(p.depAt - t))}</span>} />
         {p.phase === 'shopping' && <Row k={p.dwell === 'prayer' ? 'Leaves the prayer room' : 'Leaves the shop'} v={clock(p.shopLeaveAt).slice(0, 5)} />}
         {p.phase === 'cafeSeated' && <Row k="Leaves the café" v={clock(p.cafeUntil).slice(0, 5)} />}
@@ -1058,20 +1089,96 @@ function WallsButton() {
   )
 }
 
+function OverlayButtons() {
+  const overlays = useHall((s) => s.overlays)
+  const setOverlay = useHall((s) => s.setOverlay)
+  const sound = useHall((s) => s.sound)
+  const setSound = useHall((s) => s.setSound)
+  return (
+    <>
+      <button className={overlays.moods ? 'on' : ''} aria-pressed={overlays.moods} onClick={() => setOverlay('moods', !overlays.moods)} aria-label="Mood markers" title="Mood markers">
+        <Icon d={icons.mood} />
+      </button>
+      <button className={overlays.crowding ? 'on' : ''} aria-pressed={overlays.crowding} onClick={() => setOverlay('crowding', !overlays.crowding)} aria-label="Crowding heatmap" title="Crowding heatmap">
+        <Icon d={icons.heat} />
+      </button>
+      <button className={sound ? 'on' : ''} aria-pressed={sound} onClick={() => setSound(!sound)} aria-label={sound ? 'Mute ambience' : 'Play ambience'} title={sound ? 'Mute ambience' : 'Ambient sound'}>
+        <Icon d={sound ? icons.sound : icons.mute} />
+      </button>
+    </>
+  )
+}
+
+function Legends() {
+  const overlays = useHall((s) => s.overlays)
+  if (!overlays.moods && !overlays.crowding) return null
+  return (
+    <div className="legends card">
+      {overlays.moods && (
+        <div className="legend">
+          <b>Mood</b>
+          <span>
+            <i style={{ background: toneColor.ok }} /> Content
+          </span>
+          <span>
+            <i style={{ background: toneColor.warn }} /> Impatient
+          </span>
+          <span>
+            <i style={{ background: toneColor.fault }} /> Upset
+          </span>
+        </div>
+      )}
+      {overlays.crowding && (
+        <div className="legend">
+          <b>Crowding</b>
+          <span className="legend__ramp" />
+          <small>0 – {HEAT_PEAK}+ people/m²</small>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Feeds the ambience: crowd level, and a chime whenever a gate starts boarding. */
+function SoundDriver() {
+  const sound = useHall((s) => s.sound)
+  const boarding = useRef<boolean[]>([])
+  useEffect(() => {
+    if (sound) startAmbience()
+    else stopAmbience()
+  }, [sound])
+  useEffect(() => {
+    if (!sound) return
+    return useHall.subscribe((s, prev) => {
+      if (s.stats === prev.stats) return
+      setCrowd((s.stats.inHall - s.stats.inShops - s.stats.inPrayer) / 160)
+      s.sim.gates.forEach((g, i) => {
+        const now = g.queue.length > 0 || g.scanning !== null
+        if (now && boarding.current[i] === false) chime()
+        boarding.current[i] = now
+      })
+    })
+  }, [sound])
+  return null
+}
+
 export function HallOverlay() {
   const view = useHall((s) => s.view)
   return (
     <div className="overlay">
-      <Brand route="hall" sub="MHD · Mashhad · v0.5" />
+      <Brand route="hall" sub="MHD · Mashhad · v0.7" />
       <div className="timedock">
         <TimeBar />
         <Timeline />
       </div>
       <Tools view={view}>
         <WallsButton />
+        <OverlayButtons />
       </Tools>
       <Inspector />
       <Dock />
+      <Legends />
+      <SoundDriver />
       <p className="hint">Click a counter, lane, gate, passenger or aircraft · Drag to orbit · Scroll to zoom · Shift + scroll to move through time</p>
     </div>
   )
