@@ -2,7 +2,9 @@ import { palette, toneColor } from '../design/tokens'
 import { categories, kit, kitById } from '../kit/catalog'
 import { materialSwatches } from '../kit/materials'
 import { useKit } from '../store'
+import { useEffect, useRef, useState } from 'react'
 import { Brand, Icon, icons, Row, Tools } from './common'
+import { isCompact, useMeasuredInsets } from './insets'
 
 function Overview() {
   const select = useKit((s) => s.select)
@@ -99,10 +101,10 @@ function Detail({ id }: { id: string }) {
   )
 }
 
-function Inspector() {
+function Inspector({ open }: { open: boolean }) {
   const selected = useKit((s) => s.selected)
   return (
-    <aside className="insp card" key={selected ?? 'overview'}>
+    <aside className={`insp card ${open ? '' : 'insp--closed'}`} key={selected ?? 'overview'}>
       {selected ? <Detail id={selected} /> : <Overview />}
     </aside>
   )
@@ -126,13 +128,56 @@ function Dock() {
 
 export function Overlay() {
   const view = useKit((s) => s.view)
+  const selected = useKit((s) => s.selected)
+  const [panels, setPanels] = useState(true)
+  // On compact screens the details panel stays tucked away until asked for.
+  const [details, setDetails] = useState(!isCompact())
+  const open = details || !!selected
+  const root = useRef<HTMLDivElement>(null)
+  useMeasuredInsets(root, !panels, () => useKit.getState().view('reframe'), [open, selected])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== 'h' || e.metaKey || e.ctrlKey || e.altKey) return
+      setPanels((p) => !p)
+    }
+    addEventListener('keydown', onKey)
+    return () => removeEventListener('keydown', onKey)
+  }, [])
+
+  const toggle = (
+    <button className={`helpers-toggle card ${panels ? '' : 'helpers-toggle--bare'}`} onClick={() => setPanels(!panels)} aria-label={panels ? 'Hide panels (H)' : 'Show panels (H)'} title={panels ? 'Hide panels (H)' : 'Show panels (H)'}>
+      <Icon d={panels ? icons.eyeOff : icons.eye} />
+      <span>{panels ? 'Hide panels' : 'Show panels'}</span>
+    </button>
+  )
+
+  if (!panels) {
+    return (
+      <div className="overlay overlay--kit overlay--bare" ref={root}>
+        {toggle}
+      </div>
+    )
+  }
   return (
-    <div className="overlay">
+    <div className="overlay overlay--kit" ref={root}>
       <Brand route="kit" sub="Object kit · v0.1" />
+      {toggle}
       <Tools view={view} />
-      <Inspector />
+      <Inspector open={open} />
+      <button
+        className="kit-details card"
+        onClick={() => {
+          if (selected) useKit.getState().select(null)
+          setDetails(!open)
+        }}
+        aria-expanded={open}
+      >
+        <Icon d={icons.chevronUp} size={16} />
+        {open ? 'Hide details' : 'Details'}
+      </button>
       <Dock />
-      <p className="hint">Drag to orbit · Right-drag to pan · Scroll to zoom · Click an object</p>
+      <p className="hint">Drag to orbit · Right-drag to pan · Scroll to zoom · Click an object · H hides panels</p>
     </div>
   )
 }

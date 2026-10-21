@@ -1,0 +1,415 @@
+/* Screen chrome for the terminal view: hide-panels control, and the phone layout.
+   Phone rules are scoped to .overlay--hall so the Kit page keeps its own layout. */
+
+/* ---------- hide / show panels (all sizes) ---------- */
+
+.helpers-toggle {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 14px 0 12px;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  color: var(--ink-muted);
+  transition: color 0.15s var(--ease), background 0.15s var(--ease);
+}
+
+.helpers-toggle:hover {
+  color: var(--ink);
+}
+
+.helpers-toggle--bare {
+  color: var(--blue-deep);
+  background: var(--surface);
+}
+
+.miniclock {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 14px 5px 5px;
+  border-radius: var(--radius-md);
+  font-variant-numeric: tabular-nums;
+}
+
+.miniclock button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--blue);
+  color: #fff;
+}
+
+.miniclock span {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+.overlay--bare .legends {
+  bottom: 20px;
+}
+
+/* Timeline toggle sits at the end of the clock bar; the speed cycler is phone-only. */
+.timebar__tl {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin-left: -4px;
+  border-radius: 8px;
+  color: var(--ink-muted);
+}
+
+.timebar__tl:hover {
+  background: var(--surface-sunken);
+  color: var(--ink);
+}
+
+.timebar__tl.on {
+  background: var(--blue-tint);
+  color: var(--blue-deep);
+}
+
+.timebar__speed {
+  display: none;
+}
+
+/* The sheet handle only exists on phones. */
+.overlay--hall .sheet-handle {
+  display: none;
+}
+
+/* ---------- phones ---------- */
+
+@media (max-width: 1024px) {
+  /* Row 1: brand + nav on the left, hide-panels on the right. */
+  .overlay--hall .brand {
+    top: 12px;
+    left: 12px;
+    padding: 6px;
+    gap: 6px;
+  }
+
+  .overlay--hall .brand__mark {
+    width: 32px;
+    height: 32px;
+  }
+
+  .overlay--hall .brand__nav a {
+    height: 28px;
+    padding: 0 10px;
+  }
+
+  .helpers-toggle,
+  .helpers-toggle--bare {
+    top: 12px;
+    right: 12px;
+    bottom: auto;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .helpers-toggle span {
+    display: none;
+  }
+
+  .miniclock {
+    top: 12px;
+    left: 12px;
+  }
+
+  /* Row 2: one compact clock bar; the timeline opens beneath it on demand. */
+  .overlay--hall .timedock {
+    top: 64px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    transform: none;
+    gap: 6px;
+  }
+
+  .overlay--hall .timebar {
+    gap: 8px;
+    padding: 4px 6px 4px 4px;
+    overflow: visible;
+    justify-content: flex-start;
+  }
+
+  .overlay--hall .timebar__speeds {
+    display: none;
+  }
+
+  .overlay--hall .timebar__speed {
+    display: grid;
+    place-items: center;
+    min-width: 56px;
+    height: 36px;
+    padding: 0 10px;
+    border-radius: 10px;
+    background: var(--surface-sunken);
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .overlay--hall .timebar__clock {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .overlay--hall .timebar__clock span {
+    display: block;
+  }
+
+  .overlay--hall .timebar__tl {
+    width: 36px;
+    height: 36px;
+    margin: 0;
+  }
+
+  .overlay--hall .timeline__head {
+    display: none;
+  }
+
+  /* Tools: slim column on the right edge, below the clock. */
+  .overlay--hall .tools {
+    top: 196px;
+    right: 12px;
+    flex-direction: column;
+    padding: 4px;
+  }
+
+  .overlay--hall.overlay--no-timeline .tools {
+    top: 118px;
+  }
+
+  .overlay--hall .tools button {
+    width: 36px;
+    height: 36px;
+  }
+
+  .overlay--hall .tools__sep {
+    width: auto;
+    height: 1px;
+    margin: 3px 6px;
+  }
+
+  .overlay--hall .legends {
+    display: flex;
+    left: 12px;
+    top: 196px;
+    bottom: auto;
+    padding: 8px 10px;
+  }
+
+  .overlay--hall.overlay--no-timeline .legends {
+    top: 118px;
+  }
+
+  .overlay--hall.overlay--bare .legends {
+    top: auto;
+    bottom: 12px;
+  }
+
+  .overlay--hall .legend b {
+    min-width: 0;
+  }
+
+  /* Inspector becomes a bottom sheet: handle only, half, or nearly full. */
+  .overlay--hall .insp {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-height: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    border-radius: 18px 18px 0 0;
+    overflow: hidden;
+    animation: none;
+    transition: height 0.28s var(--ease);
+    box-shadow: 0 -6px 24px -8px rgb(29 63 179 / 0.25);
+  }
+
+  .overlay--hall .insp--peek {
+    height: calc(64px + env(safe-area-inset-bottom));
+  }
+
+  .overlay--hall .insp--half {
+    height: 50%;
+  }
+
+  .overlay--hall .insp--full {
+    height: calc(100% - 64px);
+  }
+
+  .overlay--hall .insp__body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 4px 16px calc(20px + env(safe-area-inset-bottom));
+    overscroll-behavior: contain;
+  }
+
+  .overlay--hall .insp--peek .insp__body {
+    visibility: hidden;
+  }
+
+  .overlay--hall .sheet-handle {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    flex: none;
+    padding: 8px 16px 10px;
+    touch-action: manipulation;
+  }
+
+  .sheet-handle__grip {
+    width: 40px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--line);
+  }
+
+  .sheet-handle__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    gap: 8px;
+    font-size: var(--text-xs);
+    color: var(--ink-muted);
+    white-space: nowrap;
+  }
+
+  .sheet-handle__row b {
+    color: var(--ink);
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sheet-handle__chev {
+    display: grid;
+    place-items: center;
+    color: var(--ink);
+    transition: transform 0.2s var(--ease);
+  }
+
+  .sheet-handle--full .sheet-handle__chev {
+    transform: rotate(180deg);
+  }
+
+  /* The sheet's handle replaces the stats dock and the hint. */
+  .overlay--hall .dock--stats,
+  .overlay--hall .hint {
+    display: none;
+  }
+
+  /* Zone tabs scroll sideways instead of squeezing. */
+  .overlay--hall .zone-tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .overlay--hall .zone-tabs button {
+    flex: none;
+    padding: 0 10px;
+  }
+}
+
+/* Desktop clock bar: room for the timeline button without wrapping the day label. */
+@media (min-width: 1025px) {
+  .timedock .segmented--compact button {
+    padding: 0 9px;
+  }
+
+  .timebar__clock span {
+    white-space: nowrap;
+  }
+}
+
+/* ---------- Kit page ---------- */
+
+.kit-details {
+  display: none;
+}
+
+@media (max-width: 1024px) {
+  .overlay--kit .brand {
+    top: 12px;
+    left: 12px;
+    padding: 6px;
+    gap: 6px;
+  }
+
+  .overlay--kit .brand__mark {
+    width: 32px;
+    height: 32px;
+  }
+
+  .overlay--kit .tools {
+    top: 66px;
+    right: 12px;
+    flex-direction: column;
+    padding: 4px;
+  }
+
+  .overlay--kit .tools__sep {
+    width: auto;
+    height: 1px;
+    margin: 3px 6px;
+  }
+
+  .overlay--kit .insp {
+    top: auto;
+    left: 12px;
+    right: 12px;
+    bottom: 116px;
+    width: auto;
+    max-height: 50%;
+    padding: 16px;
+  }
+
+  .overlay--kit .insp--closed {
+    display: none;
+  }
+
+  .overlay--kit .kit-details {
+    position: absolute;
+    left: 12px;
+    bottom: 68px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 38px;
+    padding: 0 14px 0 10px;
+    border-radius: var(--radius-md);
+    font-weight: 600;
+  }
+
+  .overlay--kit .kit-details[aria-expanded='true'] svg {
+    transform: rotate(180deg);
+  }
+
+  .overlay--kit .dock {
+    bottom: 12px;
+    left: 12px;
+    right: 12px;
+    transform: none;
+    max-width: none;
+  }
+}

@@ -1342,6 +1342,11 @@ function Director() {
   useEffect(() => {
     const c = ref.current
     if (!c || !command) return
+    if (command.kind === 'reframe') {
+      // Panels moved: refit the current zone, keeping angle and selection.
+      if (!useHall.getState().selected && c.maxPolarAngle <= 1.2) frameZone()
+      return
+    }
     if (command.kind === 'street') {
       // Pedestrian view along the curb, looking slightly up at the canopy soffit.
       useHall.getState().select(null)
@@ -1392,7 +1397,7 @@ function Director() {
     void c.moveTo(t.x, t.y, t.z, true)
   })
 
-  return <CameraControls ref={ref} makeDefault minPolarAngle={0.45} maxPolarAngle={1.2} minZoom={4} maxZoom={260} smoothTime={0.3} dollyToCursor />
+  return <CameraControls ref={ref} makeDefault minPolarAngle={0.45} maxPolarAngle={1.2} minZoom={1.5} maxZoom={260} smoothTime={0.3} dollyToCursor />
 }
 
 /** Keeps the night factor flowing to CSS so the UI can adapt its chrome. */

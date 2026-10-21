@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { flightStatus, hhmm, upcoming, type FlightStatus } from '../data/flights'
 import type { StateTone } from '../design/tokens'
 import { toneColor } from '../design/tokens'
-import { presetOf, SPEEDS, useHall, WALL_PRESETS, type Layers, type Zone } from '../hallStore'
+import { presetOf, SPEEDS, useHall, WALL_PRESETS, type Layers, type Sheet, type Zone } from '../hallStore'
+import { useMeasuredInsets } from './insets'
 import { counterLabel, HEAT_PEAK, laneLabel, moodBand, phaseLabel } from '../scene/Hall'
 import { designs, type DesignId } from '../sim/designs'
 import { chime, setCrowd, startAmbience, stopAmbience } from './sound'
@@ -72,12 +73,19 @@ function TimeBar() {
   const t = useHall((s) => s.stats.t)
   const setRunning = useHall((s) => s.setRunning)
   const setSpeed = useHall((s) => s.setSpeed)
+  const timeline = useHall((s) => s.ui.timeline)
+  const setUi = useHall((s) => s.setUi)
+  const nextSpeed = SPEEDS[(SPEEDS.indexOf(speed as (typeof SPEEDS)[number]) + 1) % SPEEDS.length]
   return (
     <div className="timebar card">
       <button className="timebar__play" onClick={() => setRunning(!running)} aria-label={running ? 'Pause' : 'Play'} title={running ? 'Pause' : 'Play'}>
         <Icon d={running ? icons.pause : icons.play} />
       </button>
-      <div className="segmented segmented--compact" role="radiogroup" aria-label="Speed">
+      {/* Phones get one button that cycles through the speeds. */}
+      <button className="timebar__speed" onClick={() => setSpeed(nextSpeed)} aria-label={`Speed ${speed}×, tap for ${nextSpeed}×`}>
+        {speed}×
+      </button>
+      <div className="segmented segmented--compact timebar__speeds" role="radiogroup" aria-label="Speed">
         {SPEEDS.map((s) => (
           <button key={s} role="radio" aria-checked={speed === s} className={speed === s ? 'on' : ''} onClick={() => setSpeed(s)}>
             {s}×
@@ -91,6 +99,9 @@ function TimeBar() {
           <span>{running ? dayLabel(t) : `Paused · ${dayLabel(t)}`}</span>
         </div>
       </div>
+      <button className={`timebar__tl ${timeline ? 'on' : ''}`} onClick={() => setUi({ timeline: !timeline })} aria-pressed={timeline} aria-label={timeline ? 'Hide timeline' : 'Show timeline'} title="Timeline">
+        <Icon d={icons.timeline} size={16} />
+      </button>
     </div>
   )
 }
@@ -986,11 +997,45 @@ function AircraftDetail({ stand }: { stand: number }) {
 
 /* ------------------------------------------------------------------ */
 
+const SHEET_NEXT: Record<Sheet, Sheet> = { peek: 'half', half: 'full', full: 'peek' }
+
+/** Phone-only grab handle: live summary when resting, tap to raise or lower the sheet. */
+function SheetHandle() {
+  const s = useHall((st) => st.stats)
+  const sheet = useHall((st) => st.ui.sheet)
+  const setUi = useHall((st) => st.setUi)
+  return (
+    <button className={`sheet-handle sheet-handle--${sheet}`} onClick={() => setUi({ sheet: SHEET_NEXT[sheet] })} aria-label={sheet === 'full' ? 'Collapse panel' : 'Expand panel'}>
+      <span className="sheet-handle__grip" />
+      <span className="sheet-handle__row">
+        <span>
+          Inside <b>{s.inHall}</b>
+        </span>
+        <span>
+          Check-in <b>{s.inQueue}</b>
+        </span>
+        <span>
+          Security <b>{s.secInQueue}</b>
+        </span>
+        <span>
+          Missed <b className={s.missed ? 'tone tone--fault' : ''}>{s.missed}</b>
+        </span>
+        <span className="sheet-handle__chev">
+          <Icon d={icons.chevronUp} size={16} />
+        </span>
+      </span>
+    </button>
+  )
+}
+
 function Inspector() {
   const sel = useHall((s) => s.selected)
+  const sheet = useHall((s) => s.ui.sheet)
   const key = sel ? `${sel.kind}:${sel.id}` : 'overview'
   return (
-    <aside className="insp card" key={key}>
+    <aside className={`insp card insp--${sheet}`}>
+      <SheetHandle />
+      <div className="insp__body" key={key}>
       {sel?.kind === 'counter' ? (
         <CounterDetail id={sel.id} />
       ) : sel?.kind === 'lane' ? (
@@ -1004,6 +1049,7 @@ function Inspector() {
       ) : (
         <Overview />
       )}
+      </div>
     </aside>
   )
 }
@@ -1162,14 +1208,77 @@ function SoundDriver() {
   return null
 }
 
+/** Show or hide every panel; the scene stays fully interactive either way. Shortcut: H. */
+function HelpersToggle() {
+  const helpers = useHall((s) => s.ui.helpers)
+  const setUi = useHall((s) => s.setUi)
+  return (
+    <button
+      className={`helpers-toggle card ${helpers ? '' : 'helpers-toggle--bare'}`}
+      onClick={() => setUi({ helpers: !helpers })}
+      aria-pressed={!helpers}
+      aria-label={helpers ? 'Hide panels (H)' : 'Show panels (H)'}
+      title={helpers ? 'Hide panels (H)' : 'Show panels (H)'}
+    >
+      <Icon d={helpers ? icons.eyeOff : icons.eye} />
+      <span>{helpers ? 'Hide panels' : 'Show panels'}</span>
+    </button>
+  )
+}
+
+/** With panels hidden, a tiny clock keeps time readable and playable. */
+function MiniClock() {
+  const running = useHall((s) => s.running)
+  const t = useHall((s) => s.stats.t)
+  const setRunning = useHall((s) => s.setRunning)
+  return (
+    <div className="miniclock card">
+      <button onClick={() => setRunning(!running)} aria-label={running ? 'Pause' : 'Play'}>
+        <Icon d={running ? icons.pause : icons.play} size={16} />
+      </button>
+      <b>{clock(t).slice(0, 5)}</b>
+      <span>{dayLabel(t).split(' · ')[0]}</span>
+    </div>
+  )
+}
+
 export function HallOverlay() {
   const view = useHall((s) => s.view)
+  const ui = useHall((s) => s.ui)
+  const setUi = useHall((s) => s.setUi)
+  const root = useRef<HTMLDivElement>(null)
+  const selected = useHall((s) => s.selected)
+  useMeasuredInsets(root, !ui.helpers, () => useHall.getState().view('reframe'), [ui, selected])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== 'h' || e.metaKey || e.ctrlKey || e.altKey) return
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      setUi({ helpers: !useHall.getState().ui.helpers })
+    }
+    addEventListener('keydown', onKey)
+    return () => removeEventListener('keydown', onKey)
+  }, [setUi])
+
+  if (!ui.helpers) {
+    return (
+      <div className="overlay overlay--hall overlay--bare" ref={root}>
+        <MiniClock />
+        <HelpersToggle />
+        <Legends />
+        <SoundDriver />
+      </div>
+    )
+  }
+
   return (
-    <div className="overlay">
+    <div className={`overlay overlay--hall ${ui.timeline ? '' : 'overlay--no-timeline'}`} ref={root}>
+      <HelpersToggle />
       <Brand route="hall" sub="MHD · Mashhad · v0.7" />
       <div className="timedock">
         <TimeBar />
-        <Timeline />
+        {ui.timeline && <Timeline />}
       </div>
       <Tools view={view}>
         <WallsButton />

@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { Category } from './kit/catalog'
 import { kit } from './kit/catalog'
 
-export type ViewCommand = { kind: 'home' | 'zoom-in' | 'zoom-out' | 'street'; nonce: number }
+export type ViewCommand = { kind: 'home' | 'zoom-in' | 'zoom-out' | 'street' | 'reframe'; nonce: number }
 
 interface KitStore {
   selected: string | null

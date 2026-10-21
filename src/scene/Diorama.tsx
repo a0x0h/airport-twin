@@ -171,6 +171,13 @@ function Director() {
   useEffect(() => {
     const c = ref.current
     if (!c || !command) return
+    if (command.kind === 'reframe') {
+      // Panels moved: refit what is in focus without changing the angle.
+      const sel = useKit.getState().selected
+      if (sel) frame([sel], true)
+      else frameAll()
+      return
+    }
     if (command.kind === 'home') {
       resetAngle(c)
       if (useKit.getState().selected) useKit.getState().select(null)
@@ -181,7 +188,7 @@ function Director() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [command])
 
-  return <CameraControls ref={ref} makeDefault minPolarAngle={0.45} maxPolarAngle={1.2} minZoom={12} maxZoom={320} smoothTime={0.35} dollyToCursor />
+  return <CameraControls ref={ref} makeDefault minPolarAngle={0.45} maxPolarAngle={1.2} minZoom={3} maxZoom={320} smoothTime={0.35} dollyToCursor />
 }
 
 /* ------------------------------------------------------------------ */

@@ -52,6 +52,12 @@ export const WALL_PRESETS: { id: 'up' | 'cutaway' | 'down'; label: string; layer
 
 export const presetOf = (l: Layers) => WALL_PRESETS.find((p) => p.layers.roof === l.roof && p.layers.walls === l.walls && p.layers.columns === l.columns)
 
+/** Mobile bottom-sheet height: just the handle, half the screen, or nearly full. */
+export type Sheet = 'peek' | 'half' | 'full'
+
+export { isCompact as isPhone } from './ui/insets'
+import { isCompact as isPhone } from './ui/insets'
+
 export interface Jump {
   from: number
   target: number
@@ -99,6 +105,9 @@ interface HallStore {
   setOverlay: (k: 'moods' | 'crowding', on: boolean) => void
   sound: boolean
   setSound: (on: boolean) => void
+  /** Screen chrome: panels shown or hidden, the mobile bottom sheet, the timeline strip. */
+  ui: { helpers: boolean; sheet: Sheet; timeline: boolean }
+  setUi: (u: Partial<HallStore['ui']>) => void
   view: (kind: ViewCommand['kind']) => void
   jumpTo: (t: number) => void
 }
@@ -179,7 +188,8 @@ export const useHall = create<HallStore>((set, get) => {
         const next = i < 0 ? WALL_PRESETS[1] : WALL_PRESETS[(i + 1) % WALL_PRESETS.length]
         return { layers: { ...next.layers } }
       }),
-    select: (selected) => set({ selected }),
+    // On a phone, picking something lifts the sheet so its details are visible.
+    select: (selected) => set((s) => ({ selected, ui: selected && isPhone() && s.ui.sheet === 'peek' ? { ...s.ui, sheet: 'half' } : s.ui })),
     hover: (hovered) => set({ hovered }),
     setParam: (key, value) => {
       record({ t: get().sim.t, kind: 'param', key, value })
@@ -236,6 +246,8 @@ export const useHall = create<HallStore>((set, get) => {
     setOverlay: (k, on) => set((s) => ({ overlays: { ...s.overlays, [k]: on } })),
     sound: false,
     setSound: (sound) => set({ sound }),
+    ui: { helpers: true, sheet: 'peek', timeline: !isPhone() },
+    setUi: (u) => set((s) => ({ ui: { ...s.ui, ...u } })),
 
     jumpTo: (target) => {
       const token = ++jumpToken

@@ -61,8 +61,23 @@ export function Brackets({ w, d, color, y = 0.012 }: { w: number; d: number; col
 
 export const HOME_DIR = new THREE.Vector3(16, 19, 21).normalize()
 
+export interface Insets {
+  l: number
+  r: number
+  t: number
+  b: number
+}
+
+/**
+ * Room taken by the overlay UI, measured from the live layout by the
+ * overlay itself (panels move between desktop, phone and hidden states).
+ */
+export const uiInsets: { current: Insets | null } = { current: null }
+if (import.meta.env.DEV) (window as unknown as { __insets: typeof uiInsets }).__insets = uiInsets
+
 /** Screen-space room taken by the overlay UI, in CSS px. */
-export function overlayInsets(w: number, h: number) {
+export function overlayInsets(w: number, h: number): Insets {
+  if (uiInsets.current) return uiInsets.current
   if (w <= 760) return { l: 24, r: 24, t: 80, b: h * 0.42 + 96 }
   return { l: 48, r: 404, t: 96, b: 96 }
 }
