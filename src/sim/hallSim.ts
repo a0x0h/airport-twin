@@ -23,12 +23,15 @@ import {
   type LaneSpot,
 } from './hallLayout'
 import { Polyline } from './path'
+import { DOOR } from './hallLayout'
 import { BOARDING_OPENS, CAFE, CHECKIN_CLOSES, concourseRoute, PRAYER, doorPoint, DOOR_Y, GATE_CLOSES, gates as gateSpots, nearestAisle, REBOOK, SHOP, type GateSpot } from './airside'
 import { Rng, streamSeed } from './rng'
 import { designs, type DesignId } from './designs'
+import { ParkingLot, stalls, walkCrossingToStall, walkStallToCrossing, CROSSING, ENTRY_QUEUE, type ParkCar, type ParkUse } from './parking'
 import {
   alightPoint,
   BAYS,
+  routeCurbToDoor as curbToDoor,
   CAR_PARK,
   DROP_Z,
   PICKUP_BAY0,
@@ -44,6 +47,7 @@ import {
   type Vehicle,
 } from './landside'
 import {
+  ARR,
   ARR_AXIS,
   bagPose,
   CAROUSEL,
@@ -95,6 +99,12 @@ import {
  *   are collected by a car at a pick-up bay or join the taxi rank. The rank
  *   is a double-ended queue: taxis wait for passengers, or passengers for taxis.
  *
+ * Parking — P1 across the road is used by greeters (they park, walk over,
+ *   and drive off with their passenger), by drivers who walk a departing
+ *   passenger to the doors, and by long-stay travellers whose car stays for a
+ *   day or more until someone collects it. A full car park keeps its barrier
+ *   shut; cars queue on the road, and drive on when the queue backs up.
+ *
  * Demand follows the clock: a non-homogeneous Poisson process (thinning) with
  * an hourly profile and a day-of-week factor, or a constant rate.
  *
@@ -132,6 +142,8 @@ const ON_BLOCK_LEAD = 54 * 60
 const DEPLANE_LEAD = 48 * 60
 /** The inbound load and its greeters are known this long before deplaning starts. */
 const INBOUND_NOTICE = 30 * 60
+/** Plaza point on the way from the arrivals doors to the zebra crossing. */
+const SPINE_X_PLAZA = CROSSING[0] + 1.5
 export const DAY_START = 6 * 3600
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -241,6 +253,11 @@ export type PaxPhase =
   // greeters
   | 'toRail'
   | 'greeting'
+  // car park
+  | 'inCar'
+  | 'toCar'
+  | 'toFarewell'
+  | 'farewell'
 
 export interface Pax {
   id: number
@@ -289,8 +306,12 @@ export interface Pax {
   cafeUntil: number
   /** Mood 0–1: sours while queuing or held, recovers while relaxing. */
   mood: number
-  /** Departing passenger, arriving passenger, or someone meeting an arrival. */
-  kind: 'dep' | 'arr' | 'greeter'
+  /** Departing passenger, arriving passenger, someone meeting an arrival, or a car-park visitor. */
+  kind: 'dep' | 'arr' | 'greeter' | 'visitor'
+  /** Their car in P1, if they came in one. */
+  carId: number | null
+  /** Visitors: walking a departing passenger to the doors, or collecting a long-stay car. */
+  visit: 'escort' | 'returner' | null
   carousel: number | null
   claimSpot: number | null
   bagId: number | null
@@ -343,6 +364,8 @@ const paxDefaults = () => ({
   claimAt: null,
   taxiJoinAt: null,
   greeterSpot: null,
+  carId: null,
+  visit: null,
 })
 
 export interface Bag {
@@ -507,6 +530,9 @@ interface SimEvent {
     | 'curbPickup'
     | 'taxiArrive'
     | 'taxiBoardEnd'
+    | 'parkRetry'
+    | 'parkReturn'
+    | 'farewellEnd'
   ref?: number
 }
 
@@ -565,6 +591,8 @@ export interface Sample {
   /** Taxi queue, and arrivals waiting at the carousels. */
   tq: number
   ac: number
+  /** Cars parked in P1. */
+  pk: number
 }
 
 export interface HallStats {
@@ -642,6 +670,23 @@ export interface HallStats {
   pickupsWaiting: number
   /** Average mood of arrivals as they leave the airport. */
   arrSatisfaction: number
+
+  parkOccupied: number
+  parkCapacity: number
+  parkPeak: number
+  parkLongStay: number
+  parkEntryQueue: number
+  parkExitQueue: number
+  /** Wait on the road before the entry barrier lifts. */
+  parkEntryWaitAvg: number
+  /** Barrier to parked: the bay search. */
+  parkSearchAvg: number
+  /** Walk from the bay to the crossing, m. */
+  parkWalkAvg: number
+  parkExitWaitAvg: number
+  /** Cars that found the entry queue backed up and drove on. */
+  parkTurned: number
+  parkedToday: number
   history: Sample[]
 }
 
@@ -683,6 +728,11 @@ export class HallSim {
   private rngCurb: Rng
   private rngIn: Rng
   private rngTaxi: Rng
+  private rngPark: Rng
+  readonly lot: ParkingLot
+  /** The next departure arrival parks in P1 instead of stopping at the curb. */
+  private pendingPark: { use: ParkUse; color: string } | null = null
+  private readonly retrying = new Map<number, { car: ParkCar; tries: number }>()
   private inboundSeq = 0
   private inboundCount = 0
   private readonly inbound = new Map<number, InboundFlight>()
@@ -751,6 +801,20 @@ export class HallSim {
     this.rngCurb = new Rng(streamSeed(params.seed, 5))
     this.rngIn = new Rng(streamSeed(params.seed, 6))
     this.rngTaxi = new Rng(streamSeed(params.seed, 7))
+    this.rngPark = new Rng(streamSeed(params.seed, 8))
+    const d0 = designs[params.design ?? 'today']
+    this.lot = new ParkingLot(this.rngPark, { guidance: d0.bayGuidance, payMean: d0.exitPayMean }, (car) => this.onCarParked(car))
+    // Monday morning: long-stay cars left over the weekend already fill part of P1.
+    if (d0.longStayInP1) {
+      const free = stalls.map((s) => s.index)
+      for (let i = 0; i < 50; i++) {
+        const k = free.splice(Math.floor(this.rngPark.next() * free.length), 1)[0]
+        const car = this.lot.newCar('long', this.carColour(), [], 0)
+        car.need = 1
+        this.lot.placeParked(car, k, 0)
+        this.cal.push({ t: 1800 + this.rngPark.next() * 40 * 3600, kind: 'parkReturn', ref: car.id })
+      }
+    }
     const design = designs[params.design ?? 'today']
     this.counters = design.counters.map((spot) => ({
       spot,
@@ -832,17 +896,18 @@ export class HallSim {
     // The car that brings this passenger; its own stream keeps other processes unchanged.
     const taxi = this.rngCurb.next() < 0.65
     const colours = ['#f6f7fb', '#b9c1d1', '#2a3040', '#8a1f2b', '#2b5cf0']
-    this.vehicles.push({
-      id: this.nextVehicle++,
-      kind: taxi ? 'taxi' : 'car',
-      purpose: 'drop',
-      color: taxi ? '#f5b82e' : colours[Math.floor(this.rngCurb.next() * colours.length)],
-      bay: this.nextBay,
-      ta: t,
-    })
-    this.nextBay = (this.nextBay + 1) % BAYS.length
-    this.drops++
-    if (taxi) this.taxiDrops++
+    const color = taxi ? '#f5b82e' : colours[Math.floor(this.rngCurb.next() * colours.length)]
+    // Some private cars park in P1 instead of stopping at the curb (drawn from the parking stream).
+    let use: ParkUse | null = null
+    if (!taxi && this.rngPark.next() < 0.4) use = this.rngPark.next() < 0.3 ? 'long' : 'seeoff'
+    if (use === 'long' && !designs[this.params.design].longStayInP1) use = null
+    this.pendingPark = use ? { use, color } : null
+    if (!use) {
+      this.vehicles.push({ id: this.nextVehicle++, kind: taxi ? 'taxi' : 'car', purpose: 'drop', color, bay: this.nextBay, ta: t })
+      this.nextBay = (this.nextBay + 1) % BAYS.length
+      this.drops++
+      if (taxi) this.taxiDrops++
+    }
     // Pick-ups are booked out of order, so sweep the whole list.
     for (let i = this.vehicles.length - 1; i >= 0; i--) if (this.vehicles[i].ta + VEHICLE_SPAN.after < this.t) this.vehicles.splice(i, 1)
   }
@@ -925,6 +990,18 @@ export class HallSim {
         case 'taxiBoardEnd':
           this.onTaxiBoardEnd(e.ref!)
           break
+        case 'parkRetry': {
+          const r = this.retrying.get(e.ref!)!
+          this.retrying.delete(e.ref!)
+          this.enterLot(r.car, r.tries)
+          break
+        }
+        case 'parkReturn':
+          this.onParkReturn(e.ref!)
+          break
+        case 'farewellEnd':
+          this.onFarewellEnd(e.ref!)
+          break
       }
     }
     this.t = tEnd
@@ -957,7 +1034,7 @@ export class HallSim {
     if (this.t >= this.nextSample) {
       let ac = 0
       for (const c of this.carousels) for (const v of c.spots) if (v !== null) ac++
-      this.history.push({ t: this.t, q: this.queue.length, sq: this.secQueue.length, tq: this.taxiQueue.length, ac })
+      this.history.push({ t: this.t, q: this.queue.length, sq: this.secQueue.length, tq: this.taxiQueue.length, ac, pk: this.lot.occupied() })
       // 24 h at one sample per minute.
       if (this.history.length > 1440) this.history.shift()
       this.nextSample += 60
@@ -1007,13 +1084,26 @@ export class HallSim {
       if (this.flights.size > 60) this.flights.delete(this.flights.keys().next().value!)
     }
     rec.booked++
-    // Step out of the car at its bay, then walk in.
-    const v = this.vehicles.find((k) => k.purpose === 'drop' && Math.abs(k.ta - this.t) < 1e-6)
-    const bay = v ? v.bay : 0
-    ;[p.x, p.z] = alightPoint(bay)
-    p.route = routeCurbToDoor(bay)
-    this.dropTimes.push(this.t)
-    this.pax.set(id, p)
+    const park = this.pendingPark
+    this.pendingPark = null
+    if (park) {
+      // Still in the car: it has to find a bay first.
+      p.phase = 'inCar'
+      const e = ENTRY_QUEUE.at(ENTRY_QUEUE.length)
+      ;[p.x, p.z] = [e.x, e.z]
+      const car = this.lot.newCar(park.use, park.color, [id], this.t)
+      p.carId = car.id
+      this.pax.set(id, p)
+      this.enterLot(car)
+    } else {
+      // Step out of the car at its bay, then walk in.
+      const v = this.vehicles.find((k) => k.purpose === 'drop' && Math.abs(k.ta - this.t) < 1e-6)
+      const bay = v ? v.bay : 0
+      ;[p.x, p.z] = alightPoint(bay)
+      p.route = routeCurbToDoor(bay)
+      this.dropTimes.push(this.t)
+      this.pax.set(id, p)
+    }
     this.arrived++
     this.version++
     this.scheduleArrival()
@@ -1499,7 +1589,7 @@ export class HallSim {
   /** Leave the check-in queue backward along its path and out through the front door. */
   private turnAway(p: Pax) {
     this.queue.splice(this.queue.indexOf(p.id), 1)
-    this.markMissed(p)
+    if (!p.missed) this.markMissed(p)
     this.turnedAway++
     const pts: XZ[] = [[p.x, p.z]]
     queuePath.pts.forEach((pt, i) => {
@@ -1751,6 +1841,15 @@ export class HallSim {
           p.yaw = 0
           this.version++
           break
+        case 'toCar':
+          this.backAtCar(p)
+          break
+        case 'toFarewell':
+          p.phase = 'farewell'
+          p.yaw = Math.PI
+          this.cal.push({ t: this.t + 20 + this.rngPark.next() * 30, kind: 'farewellEnd', ref: p.id })
+          this.version++
+          break
         case 'toRail':
           p.phase = 'greeting'
           p.yaw = this.greeterSpotOf(p)?.yaw ?? Math.PI
@@ -1760,6 +1859,7 @@ export class HallSim {
     }
 
     this.moveTaxis(dt)
+    this.lot.step(this.t, dt)
 
     for (const o of this.officers) {
       if (!o.route) continue
@@ -2028,7 +2128,7 @@ export class HallSim {
     this.version++
   }
 
-  /** Together out of the doors and along the plaza to the car park. */
+  /** Together out of the doors and back to the greeter's car (or along the plaza to the overflow lot). */
   private onMeetEnd(id: number) {
     const p = this.pax.get(id)!
     const g = this.pax.get(p.partner!)!
@@ -2040,14 +2140,51 @@ export class HallSim {
     const speed = Math.min(p.speed, g.speed)
     p.speed = speed
     g.speed = speed
+    const car = g.carId !== null ? this.carById(g.carId) : undefined
+    if (car && car.state === 'parked') {
+      const st = stalls[car.stall!]
+      car.need = 2
+      car.back = 0
+      p.carId = car.id
+      this.walk(p, 'toCar', new Polyline([[p.x, p.z], ...outThroughDoor(-0.3), ...walkCrossingToStall(st)]))
+      this.walk(g, 'toCar', new Polyline([[g.x, g.z], ...outThroughDoor(0.3), ...walkCrossingToStall(st).map(([x, z]): XZ => [x + 0.5, z])]))
+      return
+    }
     this.walk(p, 'toCarPark', new Polyline([[p.x, p.z], ...outThroughDoor(-0.3), CAR_PARK]))
     this.walk(g, 'toCarPark', new Polyline([[g.x, g.z], ...outThroughDoor(0.3), [CAR_PARK[0], CAR_PARK[1] + 0.6]]))
   }
 
-  /** A greeter walks in from the car park and takes a place at the rail (or behind it). */
+  /** A greeter drives in and looks for a bay in P1; they walk over once parked. */
   private spawnGreeter(id: number) {
     const plan = this.greeterPlan.get(id)!
     this.greeterPlan.delete(id)
+    const g: Pax = {
+      ...paxDefaults(),
+      id,
+      code: `G-${String(id).padStart(4, '0')}`,
+      look: plan.look,
+      flight: plan.flight,
+      speed: 1.05 + this.rngIn.next() * 0.3,
+      phase: 'inCar',
+      arrivedAt: this.t,
+      depAt: plan.onBlock,
+      flightKey: plan.flightKey,
+      mood: 0.9,
+      kind: 'greeter',
+      hasBag: false,
+      partner: plan.pax,
+    }
+    const e = ENTRY_QUEUE.at(ENTRY_QUEUE.length)
+    ;[g.x, g.z] = [e.x, e.z]
+    const car = this.lot.newCar('greeter', this.carColour(), [id], this.t)
+    g.carId = car.id
+    this.pax.set(id, g)
+    this.enterLot(car)
+    this.version++
+  }
+
+  /** Into the arrivals hall to a place at the rail (or behind it). */
+  private sendGreeterIn(g: Pax, from: XZ[]) {
     const pickFree = (list: (number | null)[]) => {
       const idx = list.map((v, i) => (v === null ? i : -1)).filter((i) => i >= 0)
       return idx.length ? idx[Math.floor(this.rngIn.next() * idx.length)] : -1
@@ -2058,26 +2195,9 @@ export class HallSim {
       back = true
       k = pickFree(this.greeterBack)
     }
-    const g: Pax = {
-      ...paxDefaults(),
-      id,
-      code: `G-${String(id).padStart(4, '0')}`,
-      look: plan.look,
-      flight: plan.flight,
-      speed: 1.05 + this.rngIn.next() * 0.3,
-      phase: 'toRail',
-      arrivedAt: this.t,
-      depAt: plan.onBlock,
-      flightKey: plan.flightKey,
-      mood: 0.9,
-      kind: 'greeter',
-      hasBag: false,
-      partner: plan.pax,
-    }
-    ;[g.x, g.z] = CAR_PARK
     let target: GreeterSpot
     if (k >= 0) {
-      ;(back ? this.greeterBack : this.greeterSpots)[k] = id
+      ;(back ? this.greeterBack : this.greeterSpots)[k] = g.id
       g.greeterSpot = { back, index: k }
       target = (back ? greeterBackRow : greeterSpots)[k]
     } else {
@@ -2085,9 +2205,127 @@ export class HallSim {
       const x = ARR_AXIS + (this.rngIn.next() < 0.5 ? -1 : 1) * (2 + this.rngIn.next() * 5)
       target = { at: [x, 7.4], yaw: Math.PI, meet: [x, 6.8] }
     }
-    g.route = routeGreeterIn(target)
-    this.pax.set(id, g)
+    this.walk(g, 'toRail', routeGreeterIn(target, from))
+  }
+
+  /* ---------------- car park ---------------- */
+
+  private carColour() {
+    const colours = ['#f6f7fb', '#b9c1d1', '#2a3040', '#8a1f2b', '#2b5cf0', '#3d6b55', '#c9cdd6']
+    return colours[Math.floor(this.rngPark.next() * colours.length)]
+  }
+
+  private carById(id: number) {
+    return this.lot.cars.find((c) => c.id === id)
+  }
+
+  /** Join the entry queue; a backed-up queue means driving round and trying again, twice at most. */
+  private enterLot(car: ParkCar, tries = 0) {
+    if (this.lot.arrive(car, this.t)) return
+    if (tries < 2) {
+      this.retrying.set(car.id, { car, tries: tries + 1 })
+      this.cal.push({ t: this.t + 240 + this.rngPark.next() * 300, kind: 'parkRetry', ref: car.id })
+      return
+    }
+    // Give up on P1: drop people at the curb and leave (greeters use the overflow lot instead).
+    for (const id of car.owners) {
+      const p = this.pax.get(id)
+      if (!p) continue
+      p.carId = null
+      if (p.kind === 'dep') {
+        ;[p.x, p.z] = alightPoint(0)
+        p.arrivedAt = this.t
+        this.walk(p, 'toTerminal', curbToDoor(0))
+      } else {
+        ;[p.x, p.z] = CAR_PARK
+        this.sendGreeterIn(p, [CAR_PARK])
+      }
+    }
+  }
+
+  /** Parked: everyone gets out and walks over the crossing. */
+  private onCarParked(car: ParkCar) {
+    const st = stalls[car.stall!]
+    for (const id of car.owners) {
+      const p = this.pax.get(id)
+      if (!p) continue
+      ;[p.x, p.z] = [st.x, st.z]
+      const toCrossing = walkStallToCrossing(st)
+      if (p.kind === 'greeter') {
+        this.sendGreeterIn(p, toCrossing)
+        continue
+      }
+      p.arrivedAt = this.t
+      this.walk(p, 'toTerminal', new Polyline([...toCrossing, [16, 13.8], [DOOR[0], DOOR[1] + 3.5]]))
+      if (car.use === 'seeoff') {
+        // The driver walks them to the doors, says goodbye and comes back for the car.
+        const escort = this.newVisitor('escort', p.speed, car.id, [st.x + 0.5, st.z], false)
+        escort.partner = p.id
+        this.walk(escort, 'toFarewell', new Polyline([...toCrossing.map(([x, z]): XZ => [x + 0.5, z]), [16.5, 13.6], [DOOR[0] + 1.2, DOOR[1] + 3.0]]))
+      } else if (car.use === 'long') {
+        // Back in a day or two; someone walks out of arrivals to collect it.
+        this.cal.push({ t: this.t + Math.max(8 * 3600, this.rngPark.lognormal(36 * 3600, 0.5)), kind: 'parkReturn', ref: car.id })
+      }
+    }
+    car.back = 0
     this.version++
+  }
+
+  private newVisitor(visit: 'escort' | 'returner', speed: number, carId: number, at: XZ, bag: boolean) {
+    const r = this.rngPark
+    const v: Pax = {
+      ...paxDefaults(),
+      id: this.nextId++,
+      code: `V-${String(this.nextId - 1).padStart(4, '0')}`,
+      look: { role: 'passenger', shirt: r.pick(palette.shirts), pants: r.pick(LOOK_PANTS), skin: r.pick(palette.skin), hair: r.pick(LOOK_HAIR), bag: bag ? 'roller' : 'none', bagColor: r.pick(palette.luggage) },
+      flight: schedule[0],
+      speed,
+      phase: 'toCar',
+      arrivedAt: this.t,
+      depAt: Infinity,
+      flightKey: '',
+      mood: 0.85,
+      kind: 'visitor',
+      hasBag: bag,
+      carId,
+      visit,
+    }
+    ;[v.x, v.z] = at
+    this.pax.set(v.id, v)
+    return v
+  }
+
+  /** A long-stay traveller is back: out of the arrivals doors, over the road to their car. */
+  private onParkReturn(carId: number) {
+    const car = this.carById(carId)
+    if (!car || car.state !== 'parked') return
+    const st = stalls[car.stall!]
+    const v = this.newVisitor('returner', 1.15 + this.rngPark.next() * 0.25, car.id, [ARR_AXIS - 0.6, ARR.maxZ + 1.2], true)
+    car.need = 1
+    car.back = 0
+    this.walk(v, 'toCar', new Polyline([[v.x, v.z], [SPINE_X_PLAZA, 13.2], ...walkCrossingToStall(st)]))
+  }
+
+  private onFarewellEnd(id: number) {
+    const v = this.pax.get(id)!
+    const car = this.carById(v.carId!)!
+    this.walk(v, 'toCar', new Polyline([[v.x, v.z], [16.5, 13.6], ...walkCrossingToStall(stalls[car.stall!])]))
+  }
+
+  /** Someone reaches the car; it leaves once everyone it waits for is in. */
+  private backAtCar(p: Pax) {
+    const car = this.carById(p.carId!)
+    if (p.kind === 'arr') this.leaveAirport(p)
+    else {
+      this.pax.delete(p.id)
+      this.version++
+    }
+    if (!car) return
+    car.back++
+    if (car.back >= car.need) {
+      this.lot.depart(car)
+      this.version++
+    }
   }
 
   /** Book a pick-up car at the quieter bay, timed to arrive while the passenger walks out (or soon after). */
@@ -2295,11 +2533,29 @@ export class HallSim {
     let sum = 0
     let n = 0
     for (const p of this.pax.values()) {
-      if (p.kind === 'greeter') continue
+      if (p.kind === 'greeter' || p.kind === 'visitor') continue
       sum += p.mood
       n++
     }
     return n ? sum / n : 1
+  }
+
+  private parkingStats() {
+    const l = this.lot
+    return {
+      parkOccupied: l.occupied(),
+      parkCapacity: l.capacity,
+      parkPeak: l.peak,
+      parkLongStay: l.cars.filter((c) => c.use === 'long' && c.stall !== null).length,
+      parkEntryQueue: l.entryQueue.length,
+      parkExitQueue: l.exitQueue.length,
+      parkEntryWaitAvg: l.parkedCount ? l.entryWaitSum / l.parkedCount : 0,
+      parkSearchAvg: l.parkedCount ? l.searchSum / l.parkedCount : 0,
+      parkWalkAvg: l.parkedCount ? l.walkSum / l.parkedCount : 0,
+      parkExitWaitAvg: l.exits ? l.exitWaitSum / l.exits : 0,
+      parkTurned: l.turnedAway,
+      parkedToday: l.parkedCount,
+    }
   }
 
   private arrivalStats() {
@@ -2388,6 +2644,7 @@ export class HallSim {
       moodNow: this.moodNow(),
 
       ...this.arrivalStats(),
+      ...this.parkingStats(),
       history: this.history,
     }
   }

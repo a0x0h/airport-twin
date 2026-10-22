@@ -6,14 +6,16 @@ import { WalkthroughArch, XRayScanner } from './objects/security'
 import { CheckInCounter, FlightBoard, Planter, QueueLane, SeatingRow } from './objects/terminal'
 import { CafeCounter, Car, Lift, Lightbox, PalmPlanter, TreeColumn } from './objects/mashhad'
 import { BaggageCarousel, BarrierRail, CurbSign, Suitcase } from './objects/arrivals'
+import { BarrierGate, ParkingSign, PayStation } from './objects/parking'
 
-export type Category = 'terminal' | 'security' | 'airside' | 'arrivals' | 'people' | 'decor' | 'mashhad'
+export type Category = 'terminal' | 'security' | 'airside' | 'arrivals' | 'parking' | 'people' | 'decor' | 'mashhad'
 
 export const categories: { id: Category; label: string }[] = [
   { id: 'terminal', label: 'Terminal' },
   { id: 'security', label: 'Security' },
   { id: 'airside', label: 'Airside' },
   { id: 'arrivals', label: 'Arrivals' },
+  { id: 'parking', label: 'Parking' },
   { id: 'people', label: 'People' },
   { id: 'decor', label: 'Decor' },
   { id: 'mashhad', label: 'Mashhad' },
@@ -351,7 +353,7 @@ kit.push(
     description: 'Flat-plate racetrack reclaim belt with a centre island, infeed hatch and flight display. Bags ride it until their owner lifts them off.',
     footprint: [9.2, 3.2],
     height: 3.3,
-    at: [20, -10.5],
+    at: [20, -9.4],
     states: [
       { id: 'running', label: 'Delivering', tone: 'ok' },
       { id: 'idle', label: 'Idle', tone: 'idle' },
@@ -411,6 +413,59 @@ kit.push(
     states: [{ id: 'static', label: 'Static', tone: 'idle' }],
     specs: [['Panel', '1.4 × 0.42 m']],
     render: () => <CurbSign label="TAXI" fa="تاکسی" />,
+  },
+  {
+    id: 'barrier',
+    code: 'PK-01',
+    name: 'Barrier gate',
+    category: 'parking',
+    description: 'Car park entry or exit: a booth with ticket and pay unit and a striped arm that lifts as a car passes.',
+    footprint: [4.4, 0.6],
+    height: 1.25,
+    at: [15.2, -14.6],
+    states: [
+      { id: 'closed', label: 'Closed', tone: 'idle' },
+      { id: 'open', label: 'Open', tone: 'ok' },
+    ],
+    specs: [
+      ['Arm', '3.6 m'],
+      ['Exit, pay on exit', '≈ 14 s per car'],
+      ['Exit, ticketless', '≈ 3 s per car'],
+    ],
+    render: (s) => (
+      <group position={[-2.1, 0, 0]}>
+        <BarrierGate open={() => s === 'open'} />
+      </group>
+    ),
+  },
+  {
+    id: 'parking-sign',
+    code: 'PK-02',
+    name: 'Car park sign',
+    category: 'parking',
+    description: 'Variable message sign at the entry with the live count of free bays; shows FULL when the barrier stays shut.',
+    footprint: [1.9, 0.3],
+    height: 3.45,
+    at: [20.8, -14.6],
+    states: [
+      { id: 'free', label: 'Bays free', tone: 'ok' },
+      { id: 'full', label: 'Full', tone: 'fault' },
+    ],
+    specs: [['Panel', '1.9 × 1.0 m']],
+    render: (s) => <ParkingSign free={s === 'full' ? 0 : 23} capacity={96} />,
+  },
+  {
+    id: 'pay-station',
+    code: 'PK-03',
+    name: 'Pay station',
+    category: 'parking',
+    description: 'Pay-on-foot machine at the pedestrian entrance of the car park.',
+    footprint: [0.6, 0.42],
+    height: 1.76,
+    at: [25, -14.6],
+    states: [{ id: 'static', label: 'In service', tone: 'ok' }],
+    specs: [['Height', '1.76 m']],
+    render: () => <PayStation />,
   },
 )
 

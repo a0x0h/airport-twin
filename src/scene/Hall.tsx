@@ -21,6 +21,8 @@ import { DayLight, LightPools, sky, useNightGlow } from './daylight'
 import { BAYS, CANOPY, CANOPY_COLUMNS, CAR_PARK, CURB_Z, DROP_Z, PICKUP_BAYS, PLAZA, rankX, ROAD, THROUGH_Z, vehiclePose, type Vehicle } from '../sim/landside'
 import { ARR, ARR_AXIS, ARR_DOOR, ARR_ENTRY, PARTITION_Z, RAIL } from '../sim/arrivals'
 import { BaggageCarousel, BarrierRail, CAROUSEL_TOP, CurbSign, SlidingDoors, Suitcase } from '../kit/objects/arrivals'
+import { BarrierGate, ParkingSign, PayStation } from '../kit/objects/parking'
+import { AISLES, BARRIER_Z, EAST_LANE_X, PARK, SPINE_X, STALL_SIZE, stalls, WEST_LANE_X, type ParkCar } from '../sim/parking'
 import { Brackets, canvasProps, frameBox, HOME_DIR, Line, overlayInsets, resetAngle } from './shared'
 
 const simHour = () => hourOfDay(useHall.getState().sim.t)
@@ -343,7 +345,7 @@ function Forecourt() {
     [16, 12.6],
   ]
   // Lamps only beyond the canopy ends, so the frontage stays unobstructed from the street.
-  const lamps = useMemo(() => Array.from({ length: 15 }, (_, i) => -100 + i * 15).filter((x) => x < CANOPY.x0 - 20 || x > CANOPY.x1 + 26), [])
+  const lamps = useMemo(() => Array.from({ length: 15 }, (_, i) => -100 + i * 15).filter((x) => (x < CANOPY.x0 - 20 || x > CANOPY.x1 + 26) && (x < PARK.minX - 2 || x > PARK.maxX + 2)), [])
   const curb = useMemo(() => Array.from({ length: Math.floor((PLAZA.maxX - PLAZA.minX) / 3) }, (_, i) => PLAZA.minX + 1.5 + i * 3), [])
   return (
     <group>
@@ -442,7 +444,7 @@ function Forecourt() {
         <planeGeometry args={[10.4, 2.0]} />
       </mesh>
       <group position={[CAR_PARK[0] - 0.4, 0, CAR_PARK[1] - 1.9]}>
-        <CurbSign label="Parking" fa="پارکینگ" glyph="P" color={palette.blue} ink="#fff" />
+        <CurbSign label="Overflow" fa="پارکینگ" glyph="P" color={palette.blue} ink="#fff" />
       </group>
       {[
         [ARR.minX + 2.2, 9.4],
@@ -793,6 +795,127 @@ function Taxis() {
     <>
       {sim.taxis.map((x) => (
         <TaxiView key={`${sim.runId}:${x.id}`} x={x} />
+      ))}
+    </>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* P1 car park                                                         */
+/* ------------------------------------------------------------------ */
+
+/** Cars rise from the road (y −0.2) onto the car park deck (y 0) through the barrier throat. */
+const groundY = (z: number) => -0.2 + 0.2 * Math.min(1, Math.max(0, (z - 29) / 1.2))
+
+function CarPark() {
+  useHall((st) => st.version)
+  const sim = useHall((st) => st.sim)
+  const lot = sim.lot
+  const free = lot.capacity - lot.occupied()
+  const w = PARK.maxX - PARK.minX
+  const d = PARK.maxZ - PARK.minZ
+  const near = (x: number, z: number) => () => lot.cars.some((c) => c.route && Math.abs(c.x - x) < 2.6 && Math.abs(c.z - z) < 3.2)
+  const rows = useMemo(() => [...new Set(stalls.map((s) => s.z))], [])
+  return (
+    <group>
+      <Block size={[w, 0.2, d]} radius={0.04} position={[(PARK.minX + PARK.maxX) / 2, -0.1, (PARK.minZ + PARK.maxZ) / 2]} color="#d6dcea" />
+      {/* bays: separators and back lines */}
+      {stalls.map((s) => (
+        <Line key={s.index} from={[s.x + STALL_SIZE.w / 2, s.z - STALL_SIZE.d / 2]} to={[s.x + STALL_SIZE.w / 2, s.z + STALL_SIZE.d / 2]} width={0.08} />
+      ))}
+      {rows.map((z) => (
+        <group key={z}>
+          <Line from={[21.75, z - STALL_SIZE.d / 2]} to={[21.75, z + STALL_SIZE.d / 2]} width={0.08} />
+          <Line from={[28, z - STALL_SIZE.d / 2]} to={[28, z + STALL_SIZE.d / 2]} width={0.08} />
+        </group>
+      ))}
+      {/* one-way arrows along the aisles and lanes */}
+      {AISLES.flatMap((z) => [76, 56, 36].map((x) => [x, z])).map(([x, z]) => (
+        <Print
+          key={`${x}:${z}`}
+          width={2.4}
+          height={1.2}
+          position={[x, 0.006, z]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          draw={(ctx, cw, ch) => {
+            // Painted on the deck colour: the print material is opaque.
+            ctx.fillStyle = '#d6dcea'
+            ctx.fillRect(0, 0, cw, ch)
+            ctx.fillStyle = '#ffffff'
+            ctx.beginPath()
+            ctx.moveTo(cw * 0.06, ch / 2)
+            ctx.lineTo(cw * 0.36, ch * 0.12)
+            ctx.lineTo(cw * 0.36, ch * 0.36)
+            ctx.lineTo(cw * 0.94, ch * 0.36)
+            ctx.lineTo(cw * 0.94, ch * 0.64)
+            ctx.lineTo(cw * 0.36, ch * 0.64)
+            ctx.lineTo(cw * 0.36, ch * 0.88)
+            ctx.closePath()
+            ctx.fill()
+          }}
+        />
+      ))}
+      {/* pedestrian spine and the zebra crossing to the plaza */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[SPINE_X, 0.005, (PARK.minZ + PARK.maxZ) / 2]} material={surface('#cfe9d9')} receiveShadow>
+        <planeGeometry args={[1.8, d]} />
+      </mesh>
+      <group position={[0, -0.19, 0]}>
+        {Array.from({ length: 5 }, (_, i) => (
+          <Line key={i} from={[SPINE_X - 1.6 + i * 0.8, CURB_Z + 0.3]} to={[SPINE_X - 1.6 + i * 0.8, ROAD.maxZ - 0.2]} width={0.45} />
+        ))}
+      </group>
+      {/* edge planting */}
+      {[PARK.maxZ - 0.6].map((z) => (
+        <Block key={z} size={[w - 1, 0.5, 0.8]} position={[(PARK.minX + PARK.maxX) / 2, 0.25, z]} color={palette.palm} />
+      ))}
+      {[35, 55, 75].map((x) => (
+        <group key={x} position={[x, 0, 49]}>
+          <StreetLamp />
+        </group>
+      ))}
+      <LightPools spots={[35, 55, 75].map((x): [number, number] => [x, 49])} radius={10} color="#fff1d6" strength={0.22} y={0.01} />
+      {/* barriers, pay station and the live sign */}
+      <group position={[EAST_LANE_X - 2.1, 0, BARRIER_Z]}>
+        <BarrierGate open={near(EAST_LANE_X, BARRIER_Z)} label="Entry" />
+      </group>
+      <group position={[WEST_LANE_X - 2.1, 0, BARRIER_Z]}>
+        <BarrierGate open={near(WEST_LANE_X, BARRIER_Z)} label="Exit" />
+      </group>
+      <group position={[SPINE_X + 1.6, 0, PARK.minZ + 1.2]}>
+        <PayStation />
+      </group>
+      <group position={[EAST_LANE_X + 3.2, -0.2, ROAD.maxZ + 0.4]}>
+        <ParkingSign free={free} capacity={lot.capacity} />
+      </group>
+      <group position={[SPINE_X - 2.2, 0, CURB_Z - 0.6]}>
+        <CurbSign label="P1 Parking" fa="پارکینگ" glyph="P" color={palette.blue} ink="#fff" />
+      </group>
+    </group>
+  )
+}
+
+function ParkCarView({ c }: { c: ParkCar }) {
+  const ref = useRef<THREE.Group>(null)
+  useFrame(() => {
+    const g = ref.current
+    if (!g) return
+    g.position.set(c.x, groundY(c.z), c.z)
+    g.rotation.y = c.yaw
+  })
+  return (
+    <group ref={ref} position={[c.x, groundY(c.z), c.z]} rotation={[0, c.yaw, 0]}>
+      <Car color={c.color} />
+    </group>
+  )
+}
+
+function ParkCars() {
+  useHall((st) => st.version)
+  const sim = useHall((st) => st.sim)
+  return (
+    <>
+      {sim.lot.cars.map((c) => (
+        <ParkCarView key={`${sim.runId}:${c.id}`} c={c} />
       ))}
     </>
   )
@@ -1267,6 +1390,10 @@ export const phaseLabel: Record<Pax['phase'], string> = {
   curbWait: 'Waiting for their ride',
   toRail: 'Walking to the arrivals rail',
   greeting: 'Waiting at the rail',
+  inCar: 'Looking for a parking bay',
+  toCar: 'Walking back to the car',
+  toFarewell: 'Walking them to the doors',
+  farewell: 'Saying goodbye',
 }
 
 const ringGeo = new THREE.RingGeometry(0.34, 0.42, 40)
@@ -1304,7 +1431,7 @@ const Agent = memo(function Agent({ p, hasBag, phase }: { p: Pax; hasBag: boolea
     const [lx, lz] = last.current ?? [p.x, p.z]
     const dist = Math.hypot(p.x - lx, p.z - lz)
     last.current = [p.x, p.z]
-    g.position.set(p.x, p.y, p.z)
+    g.position.set(p.x, p.y + (p.z > CURB_Z + 0.1 && p.z < PARK.minZ ? -0.2 : 0), p.z)
     const detailed = camera.zoom >= LOD_ZOOM || selected || hovered
     if (full.current) full.current.visible = detailed
     if (lite.current) lite.current.visible = !detailed
@@ -1366,7 +1493,7 @@ function Crowd() {
   return (
     <>
       {[...sim.pax.values()]
-        .filter((p) => p.phase !== 'shopping')
+        .filter((p) => p.phase !== 'shopping' && p.phase !== 'inCar')
         .map((p) => (
           <Agent key={`${sim.runId}:${p.id}`} p={p} hasBag={p.hasBag} phase={p.phase} />
         ))}
@@ -1379,7 +1506,7 @@ function Crowd() {
 /* ------------------------------------------------------------------ */
 
 /** Floor area covered by the heatmap (terminal, concourse and forecourt). */
-const HEAT = { minX: -40, maxX: 88, minZ: -18, maxZ: 18, res: 2 }
+const HEAT = { minX: -40, maxX: 94, minZ: -18, maxZ: 66, res: 2 }
 const HEAT_W = (HEAT.maxX - HEAT.minX) * HEAT.res
 const HEAT_H = (HEAT.maxZ - HEAT.minZ) * HEAT.res
 /** People per m² shown at full colour. */
@@ -1431,7 +1558,7 @@ function CrowdHeat() {
     grid.fill(0)
     const sim = useHall.getState().sim
     for (const p of sim.pax.values()) {
-      if (p.phase === 'shopping' || p.y > 0.5) continue
+      if (p.phase === 'shopping' || p.phase === 'inCar' || p.y > 0.5) continue
       const cx = Math.round((p.x - HEAT.minX) * HEAT.res)
       const cz = Math.round((p.z - HEAT.minZ) * HEAT.res)
       let ki = 0
@@ -1508,6 +1635,7 @@ export const zoneBoxes: Record<Zone, THREE.Box3> = {
   security: box(SEC.minX, SEC.minZ, SEC.maxX, SEC.maxZ),
   gates: box(CONC.minX, CONC.minZ, CONC.maxX, CONC.maxZ),
   arrivals: box(ARR.minX - 1, ARR.minZ, PLAZA.maxX - 1, CURB_Z + 2.6, 3),
+  parking: box(PARK.minX - 1, CURB_Z - 1, PARK.maxX + 2, PARK.maxZ, 3),
   airside: box(-40, TAXIWAY_Z - 4, 110, CONC.minZ, 12),
 }
 
@@ -1634,7 +1762,7 @@ export function Hall() {
   const select = useHall((s) => s.select)
   return (
     <Canvas {...canvasProps} camera={{ position: HOME_DIR.clone().multiplyScalar(80).toArray(), zoom: 20, near: -400, far: 800 }} onPointerMissed={() => select(null)}>
-      <DayLight hour={simHour} centre={[26, 0, -30]} extent={80} />
+      <DayLight hour={simHour} centre={[30, 0, -12]} extent={86} />
       <NightToCss />
       <Apron />
       <Forecourt />
@@ -1643,6 +1771,8 @@ export function Hall() {
       <ArrivalsHall />
       <Carousels />
       <Taxis />
+      <CarPark />
+      <ParkCars />
       <LiveBoard />
       <group position={[queueOrigin[0], 0, queueOrigin[1]]} rotation={[0, queueYaw, 0]}>
         <QueueLane {...queueSpec} />

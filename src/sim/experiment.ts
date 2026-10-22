@@ -40,6 +40,9 @@ export type MetricKey =
   | 'arrJourney'
   | 'taxiWait'
   | 'arrSatisfaction'
+  | 'parkEntryWait'
+  | 'parkTurned'
+  | 'parkExitWait'
 
 export const METRICS: { key: MetricKey; label: string; unit: 'time' | 'pct' | 'count'; better: 'lower' | 'higher' }[] = [
   { key: 'checkinWait', label: 'Avg check-in wait', unit: 'time', better: 'lower' },
@@ -54,6 +57,9 @@ export const METRICS: { key: MetricKey; label: string; unit: 'time' | 'pct' | 'c
   { key: 'arrJourney', label: 'Arrivals: aircraft to exit', unit: 'time', better: 'lower' },
   { key: 'taxiWait', label: 'Arrivals: taxi wait', unit: 'time', better: 'lower' },
   { key: 'arrSatisfaction', label: 'Arrivals: mood at exit', unit: 'pct', better: 'higher' },
+  { key: 'parkEntryWait', label: 'Parking: wait to enter', unit: 'time', better: 'lower' },
+  { key: 'parkTurned', label: 'Parking: cars that drove on', unit: 'count', better: 'lower' },
+  { key: 'parkExitWait', label: 'Parking: exit barrier', unit: 'time', better: 'lower' },
 ]
 
 /** Coarser movement step for headless runs; identical for both designs, so comparisons stay fair. */
@@ -87,6 +93,9 @@ export function runReplication(job: Job): Replication {
       arrJourney: s.arrJourneyAvg,
       taxiWait: s.taxiWaitAvg,
       arrSatisfaction: s.arrSatisfaction,
+      parkEntryWait: s.parkEntryWaitAvg,
+      parkTurned: s.parkTurned,
+      parkExitWait: s.parkExitWaitAvg,
     },
     hourly,
     ms: performance.now() - t0,

@@ -31,6 +31,12 @@ export interface Design {
   bagGap: number
   /** Taxis held in a lot behind the rank when it is full, called forward as it empties (0: they drive on). */
   taxiLot: number
+  /** Long-stay cars share P1 with short-stay visitors; otherwise they go to a remote lot by shuttle. */
+  longStayInP1: boolean
+  /** Bay sensors guide drivers straight to the free stall nearest the walkway. */
+  bayGuidance: boolean
+  /** Mean seconds to pay at the P1 exit barrier. */
+  exitPayMean: number
 }
 
 const today: Design = {
@@ -44,6 +50,7 @@ const today: Design = {
     'Agent scans boarding passes (≈ 7 s)',
     'First bag ≈ 14 min after landing',
     'Taxi rank holds 6 cars; taxis finding it full drive on',
+    'P1 car park (96 bays) shared by long-stay and short-stay, pay at the exit barrier',
   ],
   counters: todayCounters,
   lanes: todayLanes,
@@ -56,6 +63,9 @@ const today: Design = {
   firstBagMin: 14,
   bagGap: 6,
   taxiLot: 0,
+  longStayInP1: true,
+  bayGuidance: false,
+  exitPayMean: 14,
 }
 
 const proposedCounters = [
@@ -75,6 +85,7 @@ const proposed: Design = {
     'Self-boarding e-gates (≈ 3.5 s per passenger)',
     'Bag room staffed to the schedule: first bag ≈ 9 min, faster unloading',
     'Taxi holding lot for 18 cars, called up as the rank empties',
+    'P1 kept for short stay (long-stay to a remote lot by shuttle), bay guidance, ticketless exit',
   ],
   counters: proposedCounters,
   // Four lanes on a 3.6 m pitch fit the same room; search mats sit a little closer.
@@ -88,6 +99,9 @@ const proposed: Design = {
   firstBagMin: 9,
   bagGap: 4,
   taxiLot: 18,
+  longStayInP1: false,
+  bayGuidance: true,
+  exitPayMean: 3,
 }
 
 export const designs: Record<DesignId, Design> = { today, proposed }

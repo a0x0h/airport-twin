@@ -11,6 +11,7 @@ import { aircraftAt, BOARDING_OPENS, gates as gateSpots } from '../sim/airside'
 import { clock, DAY_START, dayLabel, hourOfDay, HOURLY, mmss, WEEKLY, type Counter, type Gate, type HallSim, type Lane, type Pax, type Sample } from '../sim/hallSim'
 import { Brand, Icon, icons, Row, Tools } from './common'
 import { Timeline } from './Timeline'
+import { stalls } from '../sim/parking'
 
 /** Average walk from queue head to a counter, added to service when estimating load. */
 const WALKUP_S = 8
@@ -112,7 +113,7 @@ function TimeBar() {
 /* ------------------------------------------------------------------ */
 
 /** Queue-length sparkline: single series, hover crosshair + tooltip. */
-function Sparkline({ data, field, unit }: { data: Sample[]; field: 'q' | 'sq' | 'tq' | 'ac'; unit: string }) {
+function Sparkline({ data, field, unit }: { data: Sample[]; field: 'q' | 'sq' | 'tq' | 'ac' | 'pk'; unit: string }) {
   const speed = useHall((s) => s.speed)
   const [hover, setHover] = useState<number | null>(null)
   const W = 304
@@ -349,6 +350,8 @@ function TerminalTab() {
         <Kpi label="Mood now" value={`${Math.round(stats.moodNow * 100)}%`} sub="everyone inside" />
         <Kpi label="Landed" value={stats.landed} sub={`${stats.arrInside} arrivals inside`} />
         <Kpi label="Taxi wait" value={mmss(stats.taxiWaitAvg)} sub={`${stats.taxiQueue} in the queue`} />
+        <Kpi label="P1 car park" value={`${stats.parkOccupied}/${stats.parkCapacity}`} sub={stats.parkOccupied >= stats.parkCapacity ? 'full, barrier closed' : `${stats.parkCapacity - stats.parkOccupied} bays free`} />
+        <Kpi label="Drove on" value={<span className={stats.parkTurned ? 'tone tone--warn' : ''}>{stats.parkTurned}</span>} sub="found the car park queue full" />
       </div>
       <Section title={`Design · ${design.fa}`} aside={<a href="#/lab">Compare in the Lab →</a>}>
         <ul className="design-list">
@@ -681,6 +684,78 @@ function ArrivalsTab() {
   )
 }
 
+/** Bay map: one cell per stall, coloured by who is parked there. */
+function BayMap() {
+  useHall((s) => s.version)
+  const sim = useHall((s) => s.sim)
+  const use = new Map(sim.lot.cars.map((c) => [c.id, c]))
+  const cell = (i: number) => {
+    const id = sim.lot.stallCar[i]
+    const c = id !== null ? use.get(id) : undefined
+    const kind = !c ? 'free' : c.state === 'toStall' ? 'arriving' : c.use === 'long' ? 'long' : 'short'
+    return <i key={i} className={`bay bay--${kind}`} />
+  }
+  const perRow = stalls.filter((s) => s.z === stalls[0].z).length
+  const rows = [0, 1, 2, 3].map((r) => Array.from({ length: perRow }, (_, k) => r * perRow + k))
+  return (
+    <div className="baymap" role="img" aria-label={`${sim.lot.occupied()} of ${sim.lot.capacity} bays taken`}>
+      {[0, 2].map((r) => (
+        <div key={r} className="baymap__aisle">
+          <div className="baymap__row">{rows[r].map(cell)}</div>
+          <div className="baymap__row">{rows[r + 1].map(cell)}</div>
+        </div>
+      ))}
+      <div className="baymap__legend">
+        <span>
+          <i className="bay bay--long" /> Long stay
+        </span>
+        <span>
+          <i className="bay bay--short" /> Short stay
+        </span>
+        <span>
+          <i className="bay bay--arriving" /> Parking now
+        </span>
+        <span>
+          <i className="bay bay--free" /> Free
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function ParkingTab() {
+  const stats = useHall((s) => s.stats)
+  const params = useHall((s) => s.params)
+  const d = designs[params.design]
+  const full = stats.parkOccupied >= stats.parkCapacity
+  return (
+    <>
+      <div className="insp__head">
+        <h2 className="insp__title">P1 car park</h2>
+        <p className="insp__desc">
+          {stats.parkCapacity} bays across the road. Greeters park here, drivers walk departing passengers to the doors{d.longStayInP1 ? ', and long-stay travellers leave their car for a day or two' : '; long-stay cars go to a remote lot'}. When it is full the barrier stays shut and cars queue on the road; with five waiting, the rest drive on.
+        </p>
+      </div>
+      <div className="kpis">
+        <Kpi label="Occupied" value={<span className={full ? 'tone tone--fault' : ''}>{`${stats.parkOccupied}/${stats.parkCapacity}`}</span>} sub={`peak ${stats.parkPeak}`} />
+        <Kpi label="Long-stay cars" value={stats.parkLongStay} sub={d.longStayInP1 ? 'collected days later' : 'sent to the remote lot'} />
+        <Kpi label="Entry queue" value={stats.parkEntryQueue} sub={`avg wait ${mmss(stats.parkEntryWaitAvg)}`} />
+        <Kpi label="Drove on" value={<span className={stats.parkTurned ? 'tone tone--warn' : ''}>{stats.parkTurned}</span>} sub="entry queue backed up" />
+        <Kpi label="Barrier to bay" value={mmss(stats.parkSearchAvg)} sub={d.bayGuidance ? 'guided to a free bay' : 'searching aisle by aisle'} />
+        <Kpi label="Walk to terminal" value={`${Math.round(stats.parkWalkAvg)} m`} sub="bay to the crossing" />
+        <Kpi label="Exit wait" value={mmss(stats.parkExitWaitAvg)} sub={`${stats.parkExitQueue} at the barrier · ${d.exitPayMean <= 5 ? 'ticketless' : 'pay on exit'}`} />
+        <Kpi label="Cars parked" value={stats.parkedToday} sub="since the start" />
+      </div>
+      <Section title="Bays">
+        <BayMap />
+      </Section>
+      <Section title="Occupancy">
+        <Sparkline data={stats.history} field="pk" unit="cars parked" />
+      </Section>
+    </>
+  )
+}
+
 function AirsideTab() {
   const t = useHall((s) => s.stats.t)
   const select = useHall((s) => s.select)
@@ -735,6 +810,7 @@ const ZONES: { id: Zone; label: string }[] = [
   { id: 'security', label: 'Security' },
   { id: 'gates', label: 'Gates' },
   { id: 'arrivals', label: 'Arrivals' },
+  { id: 'parking', label: 'Parking' },
   { id: 'airside', label: 'Airside' },
 ]
 
@@ -759,7 +835,7 @@ function Overview() {
           </button>
         ))}
       </div>
-      {zone === 'terminal' ? <TerminalTab /> : zone === 'landside' ? <CurbTab /> : zone === 'checkin' ? <CheckinTab /> : zone === 'security' ? <SecurityTab /> : zone === 'gates' ? <GatesTab /> : zone === 'arrivals' ? <ArrivalsTab /> : <AirsideTab />}
+      {zone === 'terminal' ? <TerminalTab /> : zone === 'landside' ? <CurbTab /> : zone === 'checkin' ? <CheckinTab /> : zone === 'security' ? <SecurityTab /> : zone === 'gates' ? <GatesTab /> : zone === 'arrivals' ? <ArrivalsTab /> : zone === 'parking' ? <ParkingTab /> : <AirsideTab />}
     </>
   )
 }
@@ -912,6 +988,7 @@ function PaxDetail({ id }: { id: number }) {
   }
 
   if (p.kind !== 'dep') return <ArrivalDetail p={p} t={t} sim={sim} />
+  const parkedCar = p.carId !== null ? sim.lot.cars.find((c) => c.id === p.carId) : undefined
 
   const qPos = sim.queue.indexOf(p.id)
   const sqPos = sim.secQueue.indexOf(p.id)
@@ -940,7 +1017,8 @@ function PaxDetail({ id }: { id: number }) {
       </div>
       {p.actStart !== null && p.actDur !== null && <Progress head={phaseLabel[p.phase]} code={lane ? `Lane ${lane.spot.number}` : ''} start={p.actStart} dur={p.actDur} t={t} />}
       <div className="rows">
-        <Row k="In terminal" v={mmss(t - p.arrivedAt)} />
+        <Row k={p.phase === 'inCar' ? 'Driving in for' : 'In terminal'} v={mmss(t - p.arrivedAt)} />
+        {parkedCar && <Row k="Car" v={parkedCar.stall !== null ? `P1 · bay ${parkedCar.stall + 1}` : 'Queuing for P1'} />}
         <Row
           k="Mood"
           v={
@@ -998,6 +1076,8 @@ function ArrivalDetail({ p, t, sim }: { p: Pax; t: number; sim: HallSim }) {
     '—'
   )
   const taxiPos = sim.taxiQueue.indexOf(p.id)
+  const car = p.carId !== null ? sim.lot.cars.find((c) => c.id === p.carId) : undefined
+  const carBay = car?.stall ?? null
   const bag = p.bagId !== null ? sim.bags.get(p.bagId) : undefined
   const bagState = p.look.bag !== 'roller' ? (p.look.bag === 'backpack' ? 'Backpack only' : 'No bags') : p.hasBag ? 'Collected' : bag && !Number.isNaN(bag.loadAt) ? 'On the belt' : 'Still in the bag room'
   return (
@@ -1008,18 +1088,27 @@ function ArrivalDetail({ p, t, sim }: { p: Pax; t: number; sim: HallSim }) {
           <span className={`pill pill--${paxTone(p)}`}>{phaseLabel[p.phase]}</span>
           <span className="insp__code">{p.code}</span>
         </div>
-        <h2 className="insp__title">{p.kind === 'greeter' ? `Meeting ${p.flight.code}` : `${p.flight.code} from ${p.flight.dest}`}</h2>
+        <h2 className="insp__title">
+          {p.kind === 'visitor' ? (p.visit === 'escort' ? 'Seeing someone off' : 'Collecting their car') : p.kind === 'greeter' ? `Meeting ${p.flight.code}` : `${p.flight.code} from ${p.flight.dest}`}
+        </h2>
         <p className="insp__desc">
-          {p.kind === 'greeter'
-            ? `Waiting for a passenger off the ${hhmm(p.flight.dep)} from ${p.flight.dest}.`
-            : `Landed ${hhmm(p.flight.dep)} at gate ${p.flight.gate} · leaving by ${EXIT_LABEL[p.exitMode ?? 'taxi'].toLowerCase()}.`}{' '}
+          {p.kind === 'visitor'
+            ? p.visit === 'escort'
+              ? 'Parked in P1 and walked a departing passenger to the doors; the car leaves once they are back.'
+              : 'Back from a trip: out of the arrivals doors and over the road to a long-stay car in P1.'
+            : p.kind === 'greeter'
+              ? `Waiting for a passenger off the ${hhmm(p.flight.dep)} from ${p.flight.dest}.`
+              : `Landed ${hhmm(p.flight.dep)} at gate ${p.flight.gate} · leaving by ${EXIT_LABEL[p.exitMode ?? 'taxi'].toLowerCase()}.`}{' '}
           The camera is following them.
         </p>
       </div>
       {p.actStart !== null && p.actDur !== null && <Progress head={phaseLabel[p.phase]} code="" start={p.actStart} dur={p.actDur} t={t} />}
       <div className="rows">
-        <Row k={p.kind === 'greeter' ? 'Here for' : 'Since landing'} v={mmss(t - p.arrivedAt)} />
-        {p.kind === 'greeter' ? (
+        <Row k={p.kind === 'arr' ? 'Since landing' : 'Here for'} v={mmss(t - p.arrivedAt)} />
+        {carBay !== null && <Row k="Car" v={`P1 · bay ${carBay + 1}`} />}
+        {p.kind === 'visitor' ? (
+          p.visit === 'escort' && <Row k="Seeing off" v={who} />
+        ) : p.kind === 'greeter' ? (
           <Row k="Meeting" v={who} />
         ) : (
           <>
@@ -1467,7 +1556,7 @@ export function HallOverlay() {
   return (
     <div className={`overlay overlay--hall ${ui.timeline ? '' : 'overlay--no-timeline'}`} ref={root}>
       <HelpersToggle />
-      <Brand route="hall" sub="MHD · Mashhad · v0.8" />
+      <Brand route="hall" sub="MHD · Mashhad · v0.9" />
       <div className="timedock">
         <TimeBar />
         {ui.timeline && <Timeline />}

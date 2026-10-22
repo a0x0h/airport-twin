@@ -13,7 +13,7 @@ export type HallSelection =
   | null
 
 /** Zone the overview is showing; also frames the camera. */
-export type Zone = 'terminal' | 'landside' | 'checkin' | 'security' | 'gates' | 'arrivals' | 'airside'
+export type Zone = 'terminal' | 'landside' | 'checkin' | 'security' | 'gates' | 'arrivals' | 'parking' | 'airside'
 
 /** 1200× runs a day in 72 s, a week in under 9 minutes. */
 export const SPEEDS = [1, 5, 20, 60, 300, 1200] as const

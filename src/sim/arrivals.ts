@@ -225,9 +225,9 @@ export const outThroughDoor = (lane = 0): XZ[] => [
   [ARR_AXIS + lane, ARR.maxZ + 1.2],
 ]
 
-/** Greeters walk in from the car park path, through the doors, to their spot. */
-export function routeGreeterIn(spot: GreeterSpot): Polyline {
-  return new Polyline([CAR_PARK, [ARR_AXIS + 2.2, ARR.maxZ + 1.4], [ARR_AXIS + 0.7, ARR.maxZ + 0.6], [ARR_AXIS + 0.7, 7.5], [spot.at[0], 7.5], spot.at])
+/** Greeters walk in (from the crossing, or the overflow lot path), through the doors, to their spot. */
+export function routeGreeterIn(spot: GreeterSpot, from: XZ[] = [CAR_PARK]): Polyline {
+  return new Polyline([...from, [ARR_AXIS + 2.2, ARR.maxZ + 1.4], [ARR_AXIS + 0.7, ARR.maxZ + 0.6], [ARR_AXIS + 0.7, 7.5], [spot.at[0], 7.5], spot.at])
 }
 
 export const CURB_EDGE_Z = CURB_Z - 0.5

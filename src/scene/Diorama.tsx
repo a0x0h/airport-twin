@@ -52,7 +52,7 @@ function Ground() {
 
       {/* terminal slab, with the arrivals wing to the east */}
       <Block size={[24, SLAB_TOP, 20]} radius={0.05} position={[0, SLAB_TOP / 2, -6.5]} color={palette.slab} />
-      <Block size={[16, SLAB_TOP, 11]} radius={0.05} position={[20, SLAB_TOP / 2, -8.5]} color={palette.slab} />
+      <Block size={[16, SLAB_TOP, 14]} radius={0.05} position={[20, SLAB_TOP / 2, -9.5]} color={palette.slab} />
       {/* glazing line along the back of the hall */}
       <Block size={[24, 0.5, 0.12]} position={[0, SLAB_TOP + 0.25, -16.44]} color={palette.panel} />
     </group>

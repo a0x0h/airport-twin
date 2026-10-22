@@ -101,7 +101,7 @@
   background: var(--surface-sunken);
 }
 
-.kpi span {
+.kpi > span {
   font-size: var(--text-xs);
   color: var(--ink-muted);
 }
@@ -1248,4 +1248,65 @@
 .zone-tabs button {
   flex: none;
   padding: 0 8px;
+}
+
+/* P1 bay map: two aisles, each with a row of bays either side. */
+.baymap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.baymap__aisle {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.baymap__row {
+  display: grid;
+  grid-template-columns: repeat(24, 1fr);
+  gap: 2px;
+}
+
+.bay {
+  display: block;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--surface-sunken);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.bay--long {
+  background: var(--blue);
+  box-shadow: none;
+}
+
+.bay--short {
+  background: var(--yellow);
+  box-shadow: none;
+}
+
+.bay--arriving {
+  background: var(--blue-tint);
+  box-shadow: inset 0 0 0 1px var(--blue);
+}
+
+.baymap__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+.baymap__legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.baymap__legend .bay {
+  width: 10px;
+  height: 10px;
 }
