@@ -4,6 +4,8 @@ import { designs, type DesignId } from '../sim/designs'
 import { compare, EXPERIMENT_STEP, METRICS, type Interval, type Job, type MetricKey, type Replication } from '../sim/experiment'
 import { mmss } from '../sim/hallSim'
 import { Brand, Icon, icons } from './common'
+import { activeDay } from '../data/realDay'
+import { DaySelect } from './DataSource'
 
 /** Series colours, validated as a pair (lightness, chroma, colour-blind separation, contrast). */
 const SERIES: Record<DesignId, string> = { today: '#d4730f', proposed: '#2b5cf0' }
@@ -212,7 +214,7 @@ export function Lab() {
     const jobs: Job[] = []
     for (let i = 0; i < cfg.reps; i++) {
       for (const design of ['today', 'proposed'] as DesignId[]) {
-        jobs.push({ id: jobs.length, design, seed: cfg.seed + i, hours: cfg.hours, peak: cfg.peak, daily: cfg.daily })
+        jobs.push({ id: jobs.length, design, seed: cfg.seed + i, hours: cfg.hours, peak: cfg.peak, daily: cfg.daily, day: activeDay() })
       }
     }
     setResults([])
@@ -298,6 +300,7 @@ export function Lab() {
           </div>
 
           <h3 className="section__title">Scenario</h3>
+          <DaySelect />
           <div className="segmented lab__presets">
             {PRESETS.map((p) => (
               <button key={p.label} className={cfg.peak === p.peak ? 'on' : ''} onClick={() => setCfg({ ...cfg, peak: p.peak })}>
@@ -311,7 +314,7 @@ export function Lab() {
           <label className="toggle">
             <span>
               Daily pattern
-              <small>Morning and evening banks</small>
+              <small>Fitted to Google popular times</small>
             </span>
             <input type="checkbox" role="switch" checked={cfg.daily} onChange={(e) => setCfg({ ...cfg, daily: e.target.checked })} />
             <i aria-hidden />

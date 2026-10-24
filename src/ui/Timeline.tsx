@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { schedule } from '../data/flights'
 import { useHall } from '../hallStore'
-import { clock, DAY_START, dayLabel, HOURLY, WEEKLY } from '../sim/hallSim'
+import { clock, DAY_START, dayLabel, hourlyShares, weekdayFactors } from '../sim/hallSim'
 import { commitNow, commitSoon, scrubWheel, useScrub } from './scrub'
 
 /**
@@ -54,7 +54,8 @@ export function Timeline() {
   }
 
   const weekday = day % 7
-  const demand = HOURLY.map((share) => (daily ? share * WEEKLY[weekday] : 0.6))
+  const weekly = weekdayFactors()
+  const demand = hourlyShares().map((share) => (daily ? share * weekly[weekday] : 0.6))
   const peak = Math.max(...demand, 0.01)
   const area =
     `M0,${BAR_TOP + BAR_H}` +
@@ -127,7 +128,7 @@ export function Timeline() {
         {nowX > 0 && <rect x={0} y={BAR_TOP} width={Math.min(W, nowX)} height={BAR_H} className="tl__past" rx={6} />}
         {/* departures */}
         {schedule.map((f) => (
-          <line key={f.code} x1={(f.dep / 86400) * W} x2={(f.dep / 86400) * W} y1={BAR_TOP + 2} y2={BAR_TOP + 9} className="tl__dep" />
+          <line key={`${f.code}@${f.dep}`} x1={(f.dep / 86400) * W} x2={(f.dep / 86400) * W} y1={BAR_TOP + 2} y2={BAR_TOP + 9} className="tl__dep" />
         ))}
         {/* the run cannot go before it started */}
         {dayStart < 0 && <rect x={0} y={BAR_TOP} width={x(0)} height={BAR_H} className="tl__void" rx={6} />}

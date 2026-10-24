@@ -1,5 +1,6 @@
 import type { DesignId } from './designs'
 import { HallSim, paramsFor } from './hallSim'
+import { setActiveDay, type RealDay } from '../data/realDay'
 
 /**
  * Design experiments: independent replications of a simulated day, run for
@@ -15,6 +16,8 @@ export interface Job {
   hours: number
   peak: number
   daily: boolean
+  /** Recorded real day to replay, sent whole because workers have their own module state. */
+  day: RealDay | null
 }
 
 export interface Replication {
@@ -67,7 +70,8 @@ export const EXPERIMENT_STEP = 0.25
 
 export function runReplication(job: Job): Replication {
   const t0 = performance.now()
-  const sim = new HallSim(paramsFor(job.design, { seed: job.seed, arrivalsPerHour: job.peak, dailyProfile: job.daily }), { step: EXPERIMENT_STEP })
+  setActiveDay(job.day)
+  const sim = new HallSim(paramsFor(job.design, { seed: job.seed, arrivalsPerHour: job.peak, dailyProfile: job.daily, day: job.day?.date ?? null }), { step: EXPERIMENT_STEP })
   sim.advanceTo(job.hours * 3600)
   const s = sim.stats()
   const hourly = { checkin: [] as number[], security: [] as number[] }

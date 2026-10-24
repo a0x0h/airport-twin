@@ -1,6 +1,7 @@
 import { palette } from '../design/tokens'
 import type { PersonLook } from '../kit/objects/Person'
 import { pickFlight, schedule, type Flight } from '../data/flights'
+import { activeDay, activeFit, LOAD_FACTOR, realProfile } from '../data/realDay'
 import type { XZ } from '../kit/queueGeometry'
 import {
   BELT_SPEED,
@@ -145,16 +146,35 @@ const INBOUND_NOTICE = 30 * 60
 /** Plaza point on the way from the arrivals doors to the zebra crossing. */
 const SPINE_X_PLAZA = CROSSING[0] + 1.5
 export const DAY_START = 6 * 3600
+
+/** "SD 237" → "SD 238": the return leg's number when the real one is unknown. */
+function nextFlightNumber(code: string) {
+  const m = code.match(/^(.*?)(\d+)$/)
+  return m ? `${m[1]}${String(Number(m[2]) + 1).padStart(m[2].length, '0')}` : code
+}
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
-/** Share of peak demand by hour of day (0–23). Morning and evening banks. */
-export const HOURLY = [0.04, 0.02, 0.02, 0.04, 0.15, 0.4, 0.85, 1, 0.9, 0.7, 0.55, 0.5, 0.55, 0.6, 0.62, 0.72, 0.86, 0.95, 0.85, 0.65, 0.5, 0.34, 0.18, 0.08]
-/** Demand factor by weekday, Monday first. */
-export const WEEKLY = [1, 0.86, 0.84, 0.9, 1.06, 0.78, 0.95]
+/**
+ * Share of peak passenger arrivals by hour of day (0–23). Calibrated on
+ * 2026-10-22 so the simulated crowd matches Google Maps popular times for MHD
+ * (public/data/mhd/popular-times.csv): iterated against simulated days, then
+ * smoothed; shape match r ≈ 0.94–0.97 on unseen seeds. Busy afternoons and
+ * evenings, never empty at night.
+ */
+export const HOURLY = [0.52, 0.41, 0.4, 0.45, 0.42, 0.45, 0.54, 0.56, 0.56, 0.66, 0.77, 0.82, 0.94, 1, 0.9, 0.77, 0.73, 0.81, 0.85, 0.82, 0.88, 0.95, 0.89, 0.7]
+/** Demand factor by weekday, Monday first: Google's mean busyness per day relative to Monday. */
+export const WEEKLY = [1, 1.057, 1.032, 0.931, 1.077, 1.071, 1.005]
+const FLAT_WEEK = WEEKLY.map(() => 1)
+/** Hourly shares in use: the replayed real day's, else the typical pattern. */
+export const hourlyShares = () => realProfile() ?? HOURLY
+/** Weekday factors in use; a replayed day is the same every day of the week. */
+export const weekdayFactors = () => (realProfile() ? FLAT_WEEK : WEEKLY)
 
 export interface HallParams {
   /** Terminal design: which counters, lanes and gate processes exist. */
   design: DesignId
+  /** Recorded real day being replayed ("2026-10-22"), or null for the synthetic schedule. */
+  day: string | null
   /** Peak arrival rate, pax/h (or the constant rate when the profile is off). */
   arrivalsPerHour: number
   dailyProfile: boolean
@@ -181,6 +201,7 @@ export function paramsFor(design: DesignId, base: Partial<HallParams> = {}): Hal
 
 export const defaultParams: HallParams = {
   design: 'today',
+  day: null,
   arrivalsPerHour: 150,
   dailyProfile: true,
   serviceMean: 95,
@@ -593,6 +614,8 @@ export interface Sample {
   ac: number
   /** Cars parked in P1. */
   pk: number
+  /** Everyone in the simulation (terminal, curb and car park). */
+  n: number
 }
 
 export interface HallStats {
@@ -792,6 +815,8 @@ export class HallSim {
   private nextSample = 0
 
   constructor(params: HallParams, opts: { step?: number } = {}) {
+    // The schedule is module state (data/realDay.ts); a mismatch means the caller forgot setActiveDay.
+    if ((params.day ?? null) !== (activeDay()?.date ?? null)) console.warn(`HallSim: params.day ${params.day} but active day ${activeDay()?.date ?? 'synthetic'}`)
     this.params = { ...params }
     this.dt = opts.step ?? STEP
     this.rngArrive = new Rng(streamSeed(params.seed, 1))
@@ -877,15 +902,16 @@ export class HallSim {
     const hour = (w / 3600) % 24
     const h0 = Math.floor(hour)
     const f = hour - h0
-    const share = HOURLY[h0] * (1 - f) + HOURLY[(h0 + 1) % 24] * f
+    const hourly = hourlyShares()
+    const share = hourly[h0] * (1 - f) + hourly[(h0 + 1) % 24] * f
     const day = Math.floor(w / 86400) % 7
-    return p.arrivalsPerHour * share * WEEKLY[day]
+    return p.arrivalsPerHour * share * weekdayFactors()[day]
   }
 
   /** Thinning: draw candidates at the peak rate, accept with λ(t)/λmax. */
   private scheduleArrival() {
     const p = this.params
-    const lmax = p.arrivalsPerHour * (p.dailyProfile ? Math.max(...WEEKLY) : 1)
+    const lmax = p.arrivalsPerHour * (p.dailyProfile ? Math.max(...weekdayFactors()) : 1)
     if (lmax <= 0) return
     let t = this.t
     for (let i = 0; i < 100000; i++) {
@@ -1034,7 +1060,7 @@ export class HallSim {
     if (this.t >= this.nextSample) {
       let ac = 0
       for (const c of this.carousels) for (const v of c.spots) if (v !== null) ac++
-      this.history.push({ t: this.t, q: this.queue.length, sq: this.secQueue.length, tq: this.taxiQueue.length, ac, pk: this.lot.occupied() })
+      this.history.push({ t: this.t, q: this.queue.length, sq: this.secQueue.length, tq: this.taxiQueue.length, ac, pk: this.lot.occupied(), n: this.pax.size })
       // 24 h at one sample per minute.
       if (this.history.length > 1440) this.history.shift()
       this.nextSample += 60
@@ -1916,12 +1942,18 @@ export class HallSim {
   }
 
   /** Inbound load per flight follows the same daily and weekly pattern as departures. */
-  private inboundLoad(t: number) {
+  private inboundLoad(t: number, out: Flight) {
     const p = this.params
+    const fit = activeFit()
+    if (fit?.fittedPax && out.seats) {
+      // A real day: the aircraft's own size, scaled so the section's flights carry as many in as it sends out.
+      const daily = p.arrivalsPerHour * (p.dailyProfile ? hourlyShares().reduce((a, b) => a + b, 0) : 24)
+      return Math.min(170, out.seats * LOAD_FACTOR * Math.min(1, daily / fit.fittedPax))
+    }
     if (!p.dailyProfile) return Math.min(170, p.arrivalsPerHour * 0.6)
     const w = this.wallClock(t)
-    const share = HOURLY[Math.floor(w / 3600) % 24]
-    return Math.min(170, p.arrivalsPerHour * 0.6 * WEEKLY[Math.floor(w / 86400) % 7] * (0.45 + 0.55 * share))
+    const share = hourlyShares()[Math.floor(w / 3600) % 24]
+    return Math.min(170, p.arrivalsPerHour * 0.6 * weekdayFactors()[Math.floor(w / 86400) % 7] * (0.45 + 0.55 * share))
   }
 
   /** Manifest, greeters and bags for one inbound flight. */
@@ -1931,9 +1963,9 @@ export class HallSim {
     const depWall = Math.floor(k / schedule.length) * 86400 + out.dep
     const onBlock = depWall - ON_BLOCK_LEAD - DAY_START
     const design = designs[this.params.design]
-    const n = Math.max(8, Math.round(this.inboundLoad(onBlock) * (0.85 + 0.3 * r.next())))
-    // Out-and-back: the aircraft arrives from the city it returns to, under the next flight number.
-    const code = `SD ${String(Number(out.code.slice(3)) + 1).padStart(3, '0')}`
+    const n = Math.max(8, Math.round(this.inboundLoad(onBlock, out) * (0.85 + 0.3 * r.next())))
+    // Out-and-back: the aircraft arrives from the city it returns to, under the real inbound number or the next one.
+    const code = out.inbound ?? nextFlightNumber(out.code)
     const flight: Flight = { code, dest: out.dest, dep: (DAY_START + onBlock) % 86400, stand: out.stand, gate: out.gate }
     const flightKey = `${code}@${Math.round(onBlock)}`
     const ci = this.inboundCount++ % this.carousels.length

@@ -8,9 +8,10 @@ import { counterLabel, HEAT_PEAK, laneLabel, moodBand, phaseLabel } from '../sce
 import { designs, type DesignId } from '../sim/designs'
 import { chime, setCrowd, startAmbience, stopAmbience } from './sound'
 import { aircraftAt, BOARDING_OPENS, gates as gateSpots } from '../sim/airside'
-import { clock, DAY_START, dayLabel, hourOfDay, HOURLY, mmss, WEEKLY, type Counter, type Gate, type HallSim, type Lane, type Pax, type Sample } from '../sim/hallSim'
+import { clock, DAY_START, dayLabel, hourOfDay, hourlyShares, mmss, weekdayFactors, type Counter, type Gate, type HallSim, type Lane, type Pax, type Sample } from '../sim/hallSim'
 import { Brand, Icon, icons, Row, Tools } from './common'
 import { Timeline } from './Timeline'
+import { DataSection } from './DataSource'
 import { stalls } from '../sim/parking'
 
 /** Average walk from queue head to a counter, added to service when estimating load. */
@@ -186,7 +187,8 @@ function DemandChart() {
   const [hover, setHover] = useState<number | null>(null)
   const day = Math.floor((DAY_START + t) / 86400) % 7
   const now = Math.floor(hourOfDay(t))
-  const values = HOURLY.map((share) => (params.dailyProfile ? params.arrivalsPerHour * share * WEEKLY[day] : params.arrivalsPerHour))
+  const weekly = weekdayFactors()
+  const values = hourlyShares().map((share) => (params.dailyProfile ? params.arrivalsPerHour * share * weekly[day] : params.arrivalsPerHour))
   const max = Math.max(...values, 1)
   const W = 304
   const H = 64
@@ -360,12 +362,15 @@ function TerminalTab() {
           ))}
         </ul>
       </Section>
+      <Section title="Data" aside={params.day ? 'Real day' : 'Synthetic'}>
+        <DataSection />
+      </Section>
       <Section title="Demand today" aside={`${Math.round(stats.demandNow)} pax/h now`}>
         <DemandChart />
       </Section>
       <Section title="Demand">
         <Slider label={params.dailyProfile ? 'Peak arrivals' : 'Arrivals'} value={params.arrivalsPerHour} min={40} max={320} step={10} unit="pax/h" onChange={(v) => setParam('arrivalsPerHour', v)} />
-        <Toggle label="Daily pattern" hint="Morning and evening peaks, quieter weekends" on={params.dailyProfile} onChange={setDaily} />
+        <Toggle label="Daily pattern" hint={params.day ? `Shape of the real flights on ${params.day}` : 'Fitted to Google popular times: busiest evenings, Fridays'} on={params.dailyProfile} onChange={setDaily} />
       </Section>
       <Section title="Run">
         <div className="rows rows--flush">

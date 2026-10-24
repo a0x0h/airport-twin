@@ -1310,3 +1310,78 @@
   width: 10px;
   height: 10px;
 }
+
+/* ---------- v0.9: real-day data ---------- */
+
+.day-select {
+  margin-bottom: 4px;
+}
+
+.day-select select {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.note code {
+  font-size: 0.95em;
+  padding: 0 3px;
+  border-radius: 4px;
+  background: var(--blue-tint);
+  color: var(--ink);
+}
+
+.metar {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  word-break: break-word;
+}
+
+.crowd__title {
+  margin-top: 16px;
+}
+
+.crowd__google {
+  fill: none;
+  stroke: var(--yellow);
+  stroke-width: 2.25;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+.crowd__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 6px;
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+.crowd__legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.crowd__key {
+  display: inline-block;
+  width: 12px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.crowd__key--sim {
+  background: var(--blue);
+}
+
+.crowd__key--google {
+  height: 3px;
+  background: var(--yellow);
+}

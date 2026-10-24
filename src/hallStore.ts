@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { defaultParams, HallSim, paramsFor, type HallParams, type HallStats } from './sim/hallSim'
 import type { DesignId } from './sim/designs'
+import { loadDay, setActiveDay } from './data/realDay'
 import type { ViewCommand } from './store'
 
 export type HallSelection =
@@ -76,7 +77,7 @@ interface HallStore {
   stats: HallStats
   running: boolean
   speed: number
-  params: Pick<HallParams, TunableKey | 'seed' | 'officers' | 'dailyProfile' | 'design'>
+  params: Pick<HallParams, TunableKey | 'seed' | 'officers' | 'dailyProfile' | 'design' | 'day'>
   zone: Zone
   layers: Layers
   selected: HallSelection
@@ -101,6 +102,8 @@ interface HallStore {
   reset: (seed?: number) => void
   /** Rebuild the airport with another design, keeping demand settings and seed. */
   setDesign: (d: DesignId) => void
+  /** Replay a recorded real day (or null for the synthetic schedule); rebuilds the run. */
+  setDay: (date: string | null) => Promise<void>
   /** Visual overlays. */
   overlays: { moods: boolean; crowding: boolean }
   setOverlay: (k: 'moods' | 'crowding', on: boolean) => void
@@ -124,6 +127,7 @@ const pick = (p: HallParams): HallStore['params'] => ({
   officers: p.officers,
   dailyProfile: p.dailyProfile,
   design: p.design,
+  day: p.day,
 })
 
 function apply(sim: HallSim, a: Action) {
@@ -241,7 +245,22 @@ export const useHall = create<HallStore>((set, get) => {
         searchMean: params.searchMean,
         taxisPerHour: params.taxisPerHour,
         seed: params.seed,
+        day: params.day,
       })
+      const next = new HallSim(runParams)
+      set({ sim: next, runParams, actions: [], jump: null, version: -1, stats: next.stats(), selected: null, params: pick(runParams) })
+    },
+    setDay: async (date) => {
+      setActiveDay(date ? await loadDay(date) : null)
+      jumpToken++
+      const { params, sim } = get()
+      const runParams: HallParams = {
+        ...defaultParams,
+        ...params,
+        day: date,
+        openCounters: sim.counters.filter((c) => c.open && !c.closing).map((c) => c.spot.id),
+        openLanes: sim.lanes.filter((l) => l.open && !l.closing).map((l) => l.spot.id),
+      }
       const next = new HallSim(runParams)
       set({ sim: next, runParams, actions: [], jump: null, version: -1, stats: next.stats(), selected: null, params: pick(runParams) })
     },

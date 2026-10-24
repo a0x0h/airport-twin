@@ -44,3 +44,14 @@ Stack: Vite, React 19, TypeScript, @react-three/fiber and drei, three.js, zustan
 - **0.8:** arrivals, baggage claim, greeters and the taxi rank; phone layout.
 - **0.7:** design comparison and Lab, mood and crowding overlays.
 - **0.1–0.6:** object kit, check-in, security, gates and boarding, Mashhad detail.
+
+## Real days at MHD (v0.9)
+
+1. Get a free key: subscribe to the **Basic** plan of AeroDataBox on RapidAPI.
+2. Create `.env.local` here with `RAPIDAPI_KEY=your-key` (git-ignored).
+3. `npm run fetch:mhd` records yesterday (Tehran time). Pass `2026-10-21` for one day, or two dates for a range.
+   Files land in `public/data/mhd/`; METAR weather (aviationweather.gov, no key) is included.
+4. In the twin, **Terminal → Data → Flights** switches between the synthetic schedule and recorded days. The Lab uses the same choice.
+
+Google Maps "Popular times" has no API: copy the bar heights (0–100) by hand into
+`public/data/mhd/popular-times.csv`. The **Crowding vs Google** chart compares its shape with the simulation's.
