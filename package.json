@@ -2,12 +2,39 @@
   "name": "airport-twin",
   "private": true,
   "version": "0.9.0",
+  "description": "A Sims-style 3D digital twin of Mashhad International Airport, driven by a seeded discrete-event simulation.",
+  "license": "MIT",
+  "author": "Abolfazl Hosseini",
+  "homepage": "https://a0x0h.github.io/airport-twin/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/a0x0h/airport-twin.git"
+  },
+  "bugs": {
+    "url": "https://github.com/a0x0h/airport-twin/issues"
+  },
+  "keywords": [
+    "digital-twin",
+    "discrete-event-simulation",
+    "airport",
+    "three.js",
+    "react-three-fiber",
+    "react",
+    "typescript",
+    "vite",
+    "simulation",
+    "operations-research"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "fetch:mhd": "node scripts/fetch-mhd.mjs"
+    "fetch:mhd": "node scripts/fetch-mhd.mjs",
+    "typecheck": "tsc -b"
   },
   "dependencies": {
     "@react-three/drei": "10.7.6",
