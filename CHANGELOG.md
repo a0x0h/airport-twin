@@ -6,7 +6,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 - Open-source project files: MIT license, contributing guide, code of conduct, security policy.
-- GitHub Actions CI build and GitHub Pages deploy.
+- GitHub Actions CI build.
 - Issue and pull-request templates, and Dependabot.
 
 ## [0.9.0]

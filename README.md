@@ -7,7 +7,6 @@
 Every passenger, bag, taxi and parked car is simulated. The same seed replays the same week, every time.
 
 [![CI](https://github.com/a0x0h/airport-twin/actions/workflows/ci.yml/badge.svg)](https://github.com/a0x0h/airport-twin/actions/workflows/ci.yml)
-[![Deploy](https://github.com/a0x0h/airport-twin/actions/workflows/deploy.yml/badge.svg)](https://sim.lhosseini.ir)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Version](https://img.shields.io/github/package-json/v/a0x0h/airport-twin?color=f5b400)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)
