@@ -1,4 +1,4 @@
-name: 🐛 Bug report
+name: Bug report
 description: Something in the twin or the Lab is wrong
 labels: [bug]
 body:

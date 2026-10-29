@@ -1,6 +1,6 @@
 <div align="center">
 
-# ✈️ Mashhad Airport Twin
+# Mashhad Airport Twin
 
 **A Sims-style 3D digital twin of Mashhad International Airport (MHD), driven by one seeded discrete-event simulation.**
 
@@ -22,18 +22,18 @@ Every passenger, bag, taxi and parked car is simulated. The same seed replays th
 
 </div>
 
-## ✨ Features
+## Features
 
 | | |
 | --- | --- |
-| 🛫 **Departures** | Curb drop-off under the MHD canopy, check-in, security lanes with blocking and a shared officer pool. Duty-free, café and prayer-room dwell, then gate holdrooms, boarding and missed flights. |
-| 🛬 **Arrivals** | Every aircraft unloads before it turns round. Passengers wait at the carousel for their own bag, clear customs, then meet a greeter, take a pick-up car or join the taxi rank (a double-ended queue). |
-| 🅿️ **Parking** | P1, a 96-bay car park used by greeters, drop-off drivers and long-stay travellers. When it is full, the barrier shuts, cars queue on the road and some drivers give up. |
-| 🕒 **Time** | Day and week clock with time-of-day lighting. Demand follows hourly and weekday profiles. The timeline scrubs back and forth through the run. |
-| 🧪 **Lab** | Paired replications with common random numbers, run in Web Workers, with 95% confidence intervals for each metric. |
-| 📡 **Real data** | Replay recorded days of AeroDataBox flights and METAR weather, and compare crowding with Google Maps *Popular times*. |
+| **Departures** | Curb drop-off under the MHD canopy, check-in, security lanes with blocking and a shared officer pool. Duty-free, café and prayer-room dwell, then gate holdrooms, boarding and missed flights. |
+| **Arrivals** | Every aircraft unloads before it turns round. Passengers wait at the carousel for their own bag, clear customs, then meet a greeter, take a pick-up car or join the taxi rank (a double-ended queue). |
+| **Parking** | P1, a 96-bay car park used by greeters, drop-off drivers and long-stay travellers. When it is full, the barrier shuts, cars queue on the road and some drivers give up. |
+| **Time** | Day and week clock with time-of-day lighting. Demand follows hourly and weekday profiles. The timeline scrubs back and forth through the run. |
+| **Lab** | Paired replications with common random numbers, run in Web Workers, with 95% confidence intervals for each metric. |
+| **Real data** | Replay recorded days of AeroDataBox flights and METAR weather, and compare crowding with Google Maps *Popular times*. |
 
-## 🏗️ Two designs, one engine
+## Two designs, one engine
 
 **MHD today** and an **MHD proposed** design run on the same simulation, so the comparison is fair:
 
@@ -54,7 +54,7 @@ Every passenger, bag, taxi and parked car is simulated. The same seed replays th
   </tr>
 </table>
 
-## 🚀 Quick start
+## Quick start
 
 ```bash
 git clone https://github.com/a0x0h/airport-twin.git
@@ -81,7 +81,7 @@ Open <http://localhost:5180>. Requires **Node.js 20+** and a browser with WebGL.
 | `#/lab` | Design experiments |
 | `#/kit` | Catalog of the hand-built 3D objects |
 
-## 📡 Replay real days at MHD
+## Replay real days at MHD
 
 1. Get a free key: subscribe to the **Basic** plan of [AeroDataBox on RapidAPI](https://rapidapi.com/aedbx-aedbx/api/aerodatabox).
 2. Copy `.env.example` to `.env.local` and set `RAPIDAPI_KEY` (the file is git-ignored).
@@ -96,7 +96,7 @@ Open <http://localhost:5180>. Requires **Node.js 20+** and a browser with WebGL.
 
 Google Maps *Popular times* has no API. Copy the bar heights (0–100) by hand into `public/data/mhd/popular-times.csv`. The **Crowding vs Google** chart compares that shape with the simulation's.
 
-## 🧱 Architecture
+## Architecture
 
 ```
 src/
@@ -110,7 +110,7 @@ src/
 
 **Stack:** [Vite](https://vite.dev) · [React 19](https://react.dev) · [TypeScript](https://www.typescriptlang.org) · [three.js](https://threejs.org) · [@react-three/fiber](https://r3f.docs.pmnd.rs) and [drei](https://drei.docs.pmnd.rs) · [zustand](https://zustand.docs.pmnd.rs)
 
-## 🗺️ Roadmap
+## Roadmap
 
 - [x] Object kit, check-in, security, gates and boarding
 - [x] Design comparison and the Lab
@@ -123,14 +123,14 @@ src/
 
 See [CHANGELOG.md](CHANGELOG.md) for release history.
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome. Read the [contributing guide](CONTRIBUTING.md) and the [code of conduct](CODE_OF_CONDUCT.md), then open an issue or a pull request.
 
-## 📄 License
+## License
 
 [MIT](LICENSE) © Abolfazl Hosseini
 
 <div align="center">
-<sub>Built for a simulation course · If this project helped you, consider giving it a ⭐</sub>
+<sub>Built for a simulation course.</sub>
 </div>
