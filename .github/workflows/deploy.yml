@@ -24,7 +24,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx tsc -b && npx vite build --base=/${{ github.event.repository.name }}/
+      - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

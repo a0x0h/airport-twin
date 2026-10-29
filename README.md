@@ -7,7 +7,7 @@
 Every passenger, bag, taxi and parked car is simulated. The same seed replays the same week, every time.
 
 [![CI](https://github.com/a0x0h/airport-twin/actions/workflows/ci.yml/badge.svg)](https://github.com/a0x0h/airport-twin/actions/workflows/ci.yml)
-[![Deploy](https://github.com/a0x0h/airport-twin/actions/workflows/deploy.yml/badge.svg)](https://a0x0h.github.io/airport-twin/)
+[![Deploy](https://github.com/a0x0h/airport-twin/actions/workflows/deploy.yml/badge.svg)](https://sim.lhosseini.ir)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Version](https://img.shields.io/github/package-json/v/a0x0h/airport-twin?color=f5b400)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)
@@ -16,7 +16,7 @@ Every passenger, bag, taxi and parked car is simulated. The same seed replays th
 ![Vite](https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-[**Live demo**](https://a0x0h.github.io/airport-twin/) · [Features](#-features) · [Quick start](#-quick-start) · [Real data](#-replay-real-days-at-mhd) · [Contributing](CONTRIBUTING.md)
+[**Live demo**](https://sim.lhosseini.ir) · [Features](#features) · [Quick start](#quick-start) · [Real data](#replay-real-days-at-mhd) · [Contributing](CONTRIBUTING.md)
 
 <img src="docs/assets/hall.png" alt="The live twin: terminal, apron, taxi rank and P1 car park with live metrics" width="100%" />
 

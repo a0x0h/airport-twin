@@ -5,7 +5,7 @@
   "description": "A Sims-style 3D digital twin of Mashhad International Airport, driven by a seeded discrete-event simulation.",
   "license": "MIT",
   "author": "Abolfazl Hosseini",
-  "homepage": "https://a0x0h.github.io/airport-twin/",
+  "homepage": "https://sim.lhosseini.ir",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/a0x0h/airport-twin.git"
