@@ -5,10 +5,14 @@ All notable changes to this project are documented here. The format follows [Kee
 ## [Unreleased]
 
 ### Changed
+- Aircraft now fly the whole turnaround: final approach on a 3° glide path, flare, braked rollout, taxi in, pushback, taxi out, take-off roll, rotation and climb. Out on the airfield a soft ground shadow shows their height.
+- The synthetic schedule uses carriers that serve Mashhad (Mahan Air, Iran Aseman, Iran Air, Taban, Kish Air, Iran Airtour, Caspian, Qeshm Air) with invented flight numbers; aircraft carry the airline code on the fin and EP- registrations.
+- People keep personal space: anyone walking steps around the people near them and leans into the stride. This is drawing only, so statistics are unchanged.
 - People are remodelled with rounded limbs, hands, shoes, a neck and varied hair (short, long, bun, headscarf); backpacks have straps and roller bags a ribbed shell.
 - Cars have bumpers, sills, mirrors, door pillars, lacquered paint and tinted glass. Glass everywhere reflects the sky more strongly.
 
 ### Added
+- Airfield after MHD: two full-length parallel runways, 13L/31R (3,811 m) and 13R/31L (3,925 m), 45 m wide, with threshold, touchdown-zone and aiming-point markings, designators, edge lights, connector taxiways, holding-position signs and a control tower. Runway spacing and tower position are approximate.
 - Lab: five course-style discrete-event simulation problems (M/M/1 customs desk, M/G/c check-in sizing, M/G/c/c car park, queues in series, a terminating day with time-varying arrivals). Each is solved step by step: conceptual model, input modelling, simulation table and event trace, warm-up and replications, confidence intervals, verification against Erlang B, Erlang C and Allen-Cunneen, and a paired comparison of alternatives that answers the question.
 - A small traceable event-scheduling engine (`src/sim/des`) with a future event list, common random numbers and non-stationary Poisson arrivals by thinning.
 - Open-source project files: MIT license, contributing guide, code of conduct, security policy.

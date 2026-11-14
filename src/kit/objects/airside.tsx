@@ -1,5 +1,5 @@
 import { palette } from '../../design/tokens'
-import { glow, surface } from '../materials'
+import { glow, surface, tint } from '../materials'
 import { Block, Lamp, Rod, Wheel } from '../primitives'
 import { Person } from './Person'
 
@@ -127,6 +127,44 @@ export function BaggageCart({ state = 'loaded' }: { state?: CartState }) {
           color={palette.luggage[c]}
         />
       ))}
+    </group>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* Control tower: shaft, glazed cab and a red obstruction light.      */
+/* ------------------------------------------------------------------ */
+
+export function ControlTower() {
+  return (
+    <group>
+      {/* base building */}
+      <Block size={[13, 4.2, 9]} radius={0.2} position={[0, 2.1, 0]} color={palette.panel} />
+      <Block size={[13.3, 0.4, 9.3]} radius={0.1} position={[0, 4.3, 0]} color={palette.shell} />
+      <Block size={[6, 1.6, 0.1]} radius={0.04} position={[2.4, 2.4, 4.52]} material={tint} />
+      <Block size={[1.6, 2.4, 0.1]} radius={0.04} position={[-3.8, 1.2, 4.52]} color={palette.blue} />
+      {/* shaft with service ribs */}
+      <Block size={[5, 30, 5]} radius={0.5} position={[0, 15, 0]} color={palette.shell} />
+      {[9, 14, 19, 24].map((y) => (
+        <Block key={y} size={[5.16, 0.3, 5.16]} radius={0.08} position={[0, y, 0]} color={palette.panel} />
+      ))}
+      <Block size={[1.2, 22, 0.1]} radius={0.04} position={[0, 17, 2.52]} material={tint} />
+      {/* cab: flared deck, outward-leaning glass, roof */}
+      <mesh position={[0, 29.6, 0]} material={surface(palette.panel)} castShadow>
+        <cylinderGeometry args={[5.4, 3.4, 1.6, 8]} />
+      </mesh>
+      <Rod radius={5.9} length={0.35} segments={8} position={[0, 30.55, 0]} color={palette.steel} />
+      <mesh position={[0, 32.4, 0]} material={tint} castShadow>
+        <cylinderGeometry args={[5.5, 4.7, 3.4, 8]} />
+      </mesh>
+      <Rod radius={6.1} length={0.5} segments={8} position={[0, 34.35, 0]} color={palette.shell} />
+      <Rod radius={1.6} length={0.9} segments={12} position={[0, 35.05, 0]} color={palette.panel} />
+      {/* antennas and obstruction light */}
+      <Rod radius={0.1} length={6} position={[0, 38.5, 0]} color={palette.steel} />
+      <Rod radius={0.06} length={3} position={[1.1, 37, 0.6]} color={palette.steel} />
+      <mesh position={[0, 41.6, 0]} material={glow(palette.fault, 2.2)}>
+        <sphereGeometry args={[0.28, 12, 10]} />
+      </mesh>
     </group>
   )
 }

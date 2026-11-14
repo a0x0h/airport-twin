@@ -7,14 +7,14 @@ import { palette } from '../design/tokens'
 import { useHall, type Zone } from '../hallStore'
 import { glass, surface } from '../kit/materials'
 import { Aircraft, JetBridge } from '../kit/objects/aircraft'
-import { BaggageCart, BaggageTug } from '../kit/objects/airside'
+import { BaggageCart, BaggageTug, ControlTower } from '../kit/objects/airside'
 import { EGate, GatePodium, ServiceDesk, ShopFront } from '../kit/objects/gate'
 import { Bench, CafeCounter, CafeTable, CanopyRoof, CANOPY_Y, Car, CurbLight, FA, FlowerBox, Lift, Lightbox, PalmPlanter, PrayerRugs, StreetLamp, TreeColumn } from '../kit/objects/mashhad'
 import { Person, PersonLite, type Motion } from '../kit/objects/Person'
 import { ReclaimTable, SearchStation, Tray, TrayReturn, WalkthroughArch, XRayScanner } from '../kit/objects/security'
 import { BagDrop, CheckInCounter, FlightBoard, Planter, QueueLane, SeatingRow, type BoardRow } from '../kit/objects/terminal'
 import { Block, Print, Rod } from '../kit/primitives'
-import { aircraftAt, AIRCRAFT_LENGTH, APRON, bridgeRoot, CAFE, CONC, LIFT_AT, PRAYER, doorPoint, gates as gateSpots, NOSE_Z, REBOOK, SHOP, STAND_X, TAXIWAY_Z, type AircraftPose, type GateSpot } from '../sim/airside'
+import { aircraftAt, AIRCRAFT_LENGTH, APRON, EXIT_X, LINEUP_X, RUNWAY_W, RUNWAYS, TAXI_LINES, type Runway, bridgeRoot, CAFE, CONC, LIFT_AT, PRAYER, doorPoint, gates as gateSpots, NOSE_Z, REBOOK, SHOP, STAND_X, TAXIWAY_Z, type AircraftPose, type GateSpot } from '../sim/airside'
 import { DOOR, EXIT, HALL, SEC_EXIT, queueOrigin, queueSpec, queueYaw, SEC, secQueueOrigin, secQueueSpec, secQueueYaw } from '../sim/hallLayout'
 import { DAY_START, hourOfDay, type Carousel, type Counter, type Lane, type Officer, type Pax, type Taxi } from '../sim/hallSim'
 import { DayLight, LightPools, sky, useNightGlow } from './daylight'
@@ -953,8 +953,9 @@ function Apron() {
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.22, 0]} material={surface(palette.ground)} receiveShadow>
-        <planeGeometry args={[600, 600]} />
+        <planeGeometry args={[14000, 5000]} />
       </mesh>
+      <Airfield />
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[(APRON.minX + APRON.maxX) / 2, -0.19, (APRON.minZ + APRON.maxZ) / 2]} material={surface(palette.asphalt)} receiveShadow>
         <planeGeometry args={[APRON.maxX - APRON.minX, APRON.maxZ - APRON.minZ]} />
       </mesh>
@@ -1004,6 +1005,136 @@ function Apron() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Airfield: MHD's two parallel runways, taxiways and control tower    */
+/* ------------------------------------------------------------------ */
+
+const flatGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2)
+const lightGeo = new THREE.SphereGeometry(0.4, 8, 6)
+const RUNWAY_COLOR = '#b7c1dc'
+
+/** Many flat painted rectangles in one draw call: [x, z, length along X, width along Z]. */
+function Marks({ items, y, color = palette.marking }: { items: [number, number, number, number][]; y: number; color?: string }) {
+  const ref = useRef<THREE.InstancedMesh>(null)
+  useEffect(() => {
+    const m = new THREE.Matrix4()
+    items.forEach(([x, z, l, w], i) => ref.current!.setMatrixAt(i, m.makeScale(l, 1, w).setPosition(x, y, z)))
+    ref.current!.instanceMatrix.needsUpdate = true
+  }, [items, y])
+  return <instancedMesh ref={ref} args={[flatGeo, surface(color), items.length]} frustumCulled={false} receiveShadow />
+}
+
+function RunwayView({ r }: { r: Runway }) {
+  const half = r.length / 2
+  const marks = useMemo(() => {
+    const out: [number, number, number, number][] = [
+      [0, r.z - RUNWAY_W / 2 + 1, r.length, 0.9],
+      [0, r.z + RUNWAY_W / 2 - 1, r.length, 0.9],
+    ]
+    for (let x = -half + 150; x <= half - 150; x += 60) out.push([x, r.z, 30, 0.9])
+    for (const end of [-1, 1]) {
+      // threshold "piano keys", touchdown zone bars and the aiming point
+      for (const dz of [3, 6.5, 10, 13.5, 17, 20.5]) for (const side of [-1, 1]) out.push([end * (half - 22), r.z + side * dz, 30, 1.8])
+      for (const d of [150, 300, 600]) for (const dz of [5, 7.5, 10]) for (const side of [-1, 1]) out.push([end * (half - d), r.z + side * dz, 22.5, 1.5])
+      for (const side of [-1, 1]) out.push([end * (half - 400), r.z + side * 8, 50, 7])
+    }
+    return out
+  }, [r, half])
+  const lights = useRef<THREE.InstancedMesh>(null)
+  const lamp = useNightGlow('#fff3dc', undefined, 3)
+  const n = Math.floor(r.length / 60) + 1
+  useEffect(() => {
+    const m = new THREE.Matrix4()
+    for (let i = 0; i < n; i++) for (const side of [0, 1]) lights.current!.setMatrixAt(i * 2 + side, m.makeTranslation(-half + i * 60, 0.1, r.z + (side ? 1 : -1) * (RUNWAY_W / 2 + 1.5)))
+    lights.current!.instanceMatrix.needsUpdate = true
+  }, [r, half, n])
+  const designator = (text: string, end: number) => (
+    <Print
+      width={15}
+      height={24}
+      position={[end * (half - 62), -0.178, r.z]}
+      rotation={[-Math.PI / 2, 0, (end * Math.PI) / 2]}
+      draw={(ctx, w, h) => {
+        ctx.fillStyle = RUNWAY_COLOR
+        ctx.fillRect(0, 0, w, h)
+        ctx.fillStyle = '#ffffff'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.font = `700 ${h * 0.4}px Inter, sans-serif`
+        ctx.fillText(text.slice(0, 2), w / 2, h * 0.27)
+        ctx.fillText(text.slice(2), w / 2, h * 0.74)
+      }}
+    />
+  )
+  return (
+    <group>
+      <mesh geometry={flatGeo} position={[0, -0.2, r.z]} scale={[r.length + 120, 1, RUNWAY_W + 15]} material={surface(palette.asphalt)} receiveShadow />
+      <mesh geometry={flatGeo} position={[0, -0.195, r.z]} scale={[r.length, 1, RUNWAY_W]} material={surface(RUNWAY_COLOR)} receiveShadow />
+      <Marks items={marks} y={-0.185} />
+      {designator(r.high, 1)}
+      {designator(r.low, -1)}
+      <instancedMesh ref={lights} args={[lightGeo, lamp, n * 2]} frustumCulled={false} />
+    </group>
+  )
+}
+
+/** Red mandatory sign at a runway holding position. */
+function HoldSign({ at, text }: { at: [number, number]; text: string }) {
+  return (
+    <group position={[at[0], -0.19, at[1]]}>
+      <Rod radius={0.08} length={0.9} position={[-1.2, 0.45, 0]} />
+      <Rod radius={0.08} length={0.9} position={[1.2, 0.45, 0]} />
+      <Block size={[4.4, 1.3, 0.25]} radius={0.06} position={[0, 1.5, 0]} color={palette.fault} />
+      <Print
+        width={4.2}
+        height={1.1}
+        position={[0, 1.5, 0.13]}
+        emissive
+        draw={(ctx, w, h) => {
+          ctx.fillStyle = '#c8232c'
+          ctx.fillRect(0, 0, w, h)
+          ctx.fillStyle = '#ffffff'
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'middle'
+          ctx.font = `800 ${h * 0.62}px Inter, sans-serif`
+          ctx.fillText(text, w / 2, h * 0.54)
+        }}
+      />
+    </group>
+  )
+}
+
+function Airfield() {
+  const near = RUNWAYS[0]
+  const name = `${near.low}-${near.high}`
+  return (
+    <group>
+      {RUNWAYS.map((r) => (
+        <RunwayView key={r.low} r={r} />
+      ))}
+      {/* parallel taxiway and the two connectors to the near runway */}
+      <mesh geometry={flatGeo} position={[(LINEUP_X + EXIT_X) / 2, -0.198, TAXIWAY_Z]} scale={[EXIT_X - LINEUP_X + 50, 1, 25]} material={surface(palette.asphalt)} receiveShadow />
+      {[EXIT_X, LINEUP_X].map((x) => (
+        <mesh key={x} geometry={flatGeo} position={[x, -0.198, (near.z + TAXIWAY_Z) / 2]} scale={[25, 1, TAXIWAY_Z - near.z]} material={surface(palette.asphalt)} receiveShadow />
+      ))}
+      <group position={[0, -0.18, 0]}>
+        <Line from={[APRON.maxX, TAXIWAY_Z]} to={[EXIT_X - 30, TAXIWAY_Z]} width={0.3} color={palette.yellow} />
+        <Line from={[LINEUP_X + 30, TAXIWAY_Z]} to={[APRON.minX, TAXIWAY_Z]} width={0.3} color={palette.yellow} />
+        {TAXI_LINES.flatMap((pts, k) => pts.slice(1).map((p, i) => <Line key={`${k}:${i}`} from={pts[i]} to={p} width={0.3} color={palette.yellow} />))}
+        {/* holding position bars */}
+        {[EXIT_X, LINEUP_X].map((x) => (
+          <Line key={x} from={[x - 12, near.z + 62]} to={[x + 12, near.z + 62]} width={0.9} color={palette.yellow} />
+        ))}
+      </group>
+      <HoldSign at={[EXIT_X + 16, near.z + 62]} text={name} />
+      <HoldSign at={[LINEUP_X - 16, near.z + 62]} text={name} />
+      <group position={[-74, -0.19, -34]}>
+        <ControlTower />
+      </group>
+    </group>
+  )
+}
+
+/* ------------------------------------------------------------------ */
 /* Aircraft                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -1023,6 +1154,9 @@ function AircraftSlot({ stand }: { stand: number }) {
   const service = useRef<THREE.Group>(null)
   const push = useRef<THREE.Group>(null)
   const [engines, setEngines] = useState(false)
+  const [tail, setTail] = useState('MHD')
+  const shadow = useRef<THREE.Group>(null)
+  const shadowMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#1c2333', transparent: true, opacity: 0.2, depthWrite: false }), [])
   const selected = useHall((s) => s.selected?.kind === 'aircraft' && s.selected.id === stand)
   const hovered = useHall((s) => s.hovered?.kind === 'aircraft' && s.hovered.id === stand)
   const select = useHall((s) => s.select)
@@ -1034,9 +1168,21 @@ function AircraftSlot({ stand }: { stand: number }) {
     const g = root.current
     if (!g) return
     g.visible = !!p
+    if (shadow.current) shadow.current.visible = false
     if (!p) return
-    g.position.set(p.x, -0.18, p.z)
+    g.position.set(p.x, -0.18 + p.y, p.z)
+    g.rotation.order = 'YXZ'
     g.rotation.y = p.yaw
+    g.rotation.x = -p.pitch
+    // Beyond the sun's shadow map, a soft ground shadow shows how high the aircraft is.
+    if (shadow.current && (p.z < -96 || p.x > 114 || p.x < -54)) {
+      shadow.current.visible = true
+      shadow.current.position.set(p.x, -0.17, p.z)
+      shadow.current.rotation.y = p.yaw
+      shadowMat.opacity = 0.22 / (1 + p.y / 40)
+    }
+    const code = p.flight.code.split(' ')[0]
+    if (code !== tail) setTail(code)
     if (service.current) service.current.visible = p.servicing
     if (push.current) push.current.visible = p.pushTug
     if (p.engines !== engines) setEngines(p.engines)
@@ -1045,6 +1191,11 @@ function AircraftSlot({ stand }: { stand: number }) {
   })
 
   return (
+    <>
+    <group ref={shadow} visible={false}>
+      <mesh geometry={flatGeo} material={shadowMat} scale={[4.2, 1, AIRCRAFT_LENGTH]} />
+      <mesh geometry={flatGeo} material={shadowMat} scale={[35.8, 1, 5]} position={[0, 0, -1]} />
+    </group>
     <group
       ref={root}
       visible={false}
@@ -1062,7 +1213,7 @@ function AircraftSlot({ stand }: { stand: number }) {
         document.body.style.cursor = ''
       }}
     >
-      <Aircraft beacon={engines} registration={`SD-A${stand + 1}W`} />
+      <Aircraft beacon={engines} tail={tail} registration={`EP-MH${'ABC'[stand]}`} />
       {/* baggage train beside the forward hold, aircraft right side */}
       <group ref={service} visible={false}>
         <group position={[-5.2, 0, 6]} rotation={[0, Math.PI, 0]}>
@@ -1087,6 +1238,7 @@ function AircraftSlot({ stand }: { stand: number }) {
         </Html>
       )}
     </group>
+    </>
   )
 }
 
@@ -1402,6 +1554,64 @@ const ringGeo = new THREE.RingGeometry(0.34, 0.42, 40)
 /** Below this camera zoom, people render as low-detail stand-ins. */
 const LOD_ZOOM = 32
 
+/* Personal space. Routes are shared polylines, so without it people walk
+ * through each other. Everyone on foot is hashed into 1 m cells once per
+ * frame; a walker is then pushed sideways out of anyone closer than NEAR.
+ * This only moves the drawn figure: the simulation, and so every statistic,
+ * is untouched. */
+const NEAR = 0.66
+const space = { cells: new Map<number, Pax[]>() }
+const cellOf = (x: number, z: number) => (Math.floor(x) + 4096) * 8192 + Math.floor(z) + 4096
+
+function CrowdSpace() {
+  useFrame(() => {
+    space.cells.clear()
+    for (const p of useHall.getState().sim.pax.values()) {
+      if (p.phase === 'shopping' || p.phase === 'inCar' || p.y > 0.3) continue
+      const k = cellOf(p.x, p.z)
+      const cell = space.cells.get(k)
+      if (cell) cell.push(p)
+      else space.cells.set(k, [p])
+    }
+  }, -1)
+  return null
+}
+
+/** Sideways push that keeps `p` out of its neighbours' space, at most 0.35 m. */
+function personalSpace(p: Pax, out: { x: number; z: number }) {
+  let px = 0
+  let pz = 0
+  const cx = Math.floor(p.x)
+  const cz = Math.floor(p.z)
+  for (let ix = cx - 1; ix <= cx + 1; ix++) {
+    for (let iz = cz - 1; iz <= cz + 1; iz++) {
+      const cell = space.cells.get((ix + 4096) * 8192 + iz + 4096)
+      if (!cell) continue
+      for (const q of cell) {
+        if (q === p) continue
+        let dx = p.x - q.x
+        let dz = p.z - q.z
+        let d = Math.hypot(dx, dz)
+        if (d >= NEAR) continue
+        if (d < 0.02) {
+          // Exactly on top of each other: part along a direction fixed by their ids.
+          const a = (p.id * 2.399 + (p.id > q.id ? 0 : Math.PI)) % (Math.PI * 2)
+          dx = Math.cos(a)
+          dz = Math.sin(a)
+          d = 1
+        }
+        const push = ((NEAR - d) / NEAR) * 0.5
+        px += (dx / d) * push
+        pz += (dz / d) * push
+      }
+    }
+  }
+  const m = Math.hypot(px, pz)
+  const k = m > 0.35 ? 0.35 / m : 1
+  out.x = px * k
+  out.z = pz * k
+}
+
 /** Mood marker: a small gem above the head, coloured by mood band. */
 // Sits just above the hair: higher markers drift away from their owners in the isometric view.
 const moodGeo = new THREE.OctahedronGeometry(0.1, 0)
@@ -1424,6 +1634,8 @@ const Agent = memo(function Agent({ p, hasBag, phase }: { p: Pax; hasBag: boolea
   const hover = useHall((s) => s.hover)
   const last = useRef<[number, number] | null>(null)
   const camera = useThree((st) => st.camera)
+  const aside = useMemo(() => ({ x: 0, z: 0 }), [])
+  const want = useMemo(() => ({ x: 0, z: 0 }), [])
 
   useFrame((_, dt) => {
     const g = ref.current
@@ -1431,7 +1643,13 @@ const Agent = memo(function Agent({ p, hasBag, phase }: { p: Pax; hasBag: boolea
     const [lx, lz] = last.current ?? [p.x, p.z]
     const dist = Math.hypot(p.x - lx, p.z - lz)
     last.current = [p.x, p.z]
-    g.position.set(p.x, p.y + (p.z > CURB_Z + 0.1 && p.z < PARK.minZ ? -0.2 : 0), p.z)
+    // People who are moving step around others; people standing in a spot keep it.
+    want.x = want.z = 0
+    if (motion.amount > 0.05 && p.y < 0.3) personalSpace(p, want)
+    const ease = Math.min(1, dt * 5)
+    aside.x += (want.x - aside.x) * ease
+    aside.z += (want.z - aside.z) * ease
+    g.position.set(p.x + aside.x, p.y + (p.z > CURB_Z + 0.1 && p.z < PARK.minZ ? -0.2 : 0), p.z + aside.z)
     const detailed = camera.zoom >= LOD_ZOOM || selected || hovered
     if (full.current) full.current.visible = detailed
     if (lite.current) lite.current.visible = !detailed
@@ -1442,6 +1660,8 @@ const Agent = memo(function Agent({ p, hasBag, phase }: { p: Pax; hasBag: boolea
     motion.stride += dist * 5.2
     const walking = dist > 0.0005 ? 1 : 0
     motion.amount += (walking - motion.amount) * Math.min(1, dt * 8)
+    // A slight lean into the stride.
+    if (full.current) full.current.rotation.x = motion.amount * 0.05
     const m = marker.current
     if (m) {
       m.visible = useHall.getState().overlays.moods
@@ -1782,6 +2002,7 @@ export function Hall() {
       </group>
       <Processors />
       <CrowdHeat />
+      <CrowdSpace />
       <Trays />
       <Officers />
       <Crowd />

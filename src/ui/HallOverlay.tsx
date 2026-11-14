@@ -1243,7 +1243,7 @@ function AircraftDetail({ stand }: { stand: number }) {
         <Back />
         <div className="insp__head">
           <h2 className="insp__title">Stand A{stand + 1} is empty</h2>
-          <p className="insp__desc">The aircraft has left. The next one taxis in about an hour before its departure.</p>
+          <p className="insp__desc">The aircraft has left. The next one lands on runway 31R about an hour before its departure.</p>
         </div>
       </>
     )
@@ -1256,8 +1256,8 @@ function AircraftDetail({ stand }: { stand: number }) {
       <Back label="Airside" />
       <div className="insp__head">
         <div className="insp__meta">
-          <span className={`pill pill--${a.phase === 'Pushback' || a.phase.startsWith('Taxi') ? 'warn' : 'ok'}`}>{a.phase}</span>
-          <span className="insp__code">SD-A{stand + 1}W</span>
+          <span className={`pill pill--${a.phase === 'Pushback' || a.phase.startsWith('Tax') || a.phase.startsWith('Tak') || a.phase === 'Landing' ? 'warn' : 'ok'}`}>{a.phase}</span>
+          <span className="insp__code">EP-MH{'ABC'[stand]}</span>
         </div>
         <h2 className="insp__title">
           {a.flight.code} to {a.flight.dest}
