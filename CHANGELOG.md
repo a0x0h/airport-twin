@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows [Kee
 ## [Unreleased]
 
 ### Added
+- Lab: five course-style discrete-event simulation problems (M/M/1 customs desk, M/G/c check-in sizing, M/G/c/c car park, queues in series, a terminating day with time-varying arrivals). Each is solved step by step: conceptual model, input modelling, simulation table and event trace, warm-up and replications, confidence intervals, verification against Erlang B, Erlang C and Allen-Cunneen, and a paired comparison of alternatives that answers the question.
+- A small traceable event-scheduling engine (`src/sim/des`) with a future event list, common random numbers and non-stationary Poisson arrivals by thinning.
 - Open-source project files: MIT license, contributing guide, code of conduct, security policy.
 - GitHub Actions CI build.
 - Issue and pull-request templates, and Dependabot.

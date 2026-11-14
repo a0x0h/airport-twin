@@ -29,7 +29,7 @@ Every passenger, bag, taxi and parked car is simulated. The same seed replays th
 | **Arrivals** | Every aircraft unloads before it turns round. Passengers wait at the carousel for their own bag, clear customs, then meet a greeter, take a pick-up car or join the taxi rank (a double-ended queue). |
 | **Parking** | P1, a 96-bay car park used by greeters, drop-off drivers and long-stay travellers. When it is full, the barrier shuts, cars queue on the road and some drivers give up. |
 | **Time** | Day and week clock with time-of-day lighting. Demand follows hourly and weekday profiles. The timeline scrubs back and forth through the run. |
-| **Lab** | Paired replications with common random numbers, run in Web Workers, with 95% confidence intervals for each metric. |
+| **Lab** | Course-style discrete-event simulation problems, each stated with givens and a question, then solved in six steps: conceptual model, input modelling, hand simulation table and event trace (FEL), experiment design, output analysis checked against queueing theory, and a comparison of alternatives that answers the question. Also the full-twin design comparison with paired replications and 95% confidence intervals. |
 | **Real data** | Replay recorded days of AeroDataBox flights and METAR weather, and compare crowding with Google Maps *Popular times*. |
 
 ## Two designs, one engine
@@ -44,11 +44,11 @@ Every passenger, bag, taxi and parked car is simulated. The same seed replays th
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/assets/lab.png" alt="Lab: MHD today vs proposed experiment setup" /></td>
+    <td width="50%"><img src="docs/assets/lab.png" alt="Lab: a simulation problem with its worked solution" /></td>
     <td width="50%"><img src="docs/assets/kit.png" alt="Kit: catalog of hand-built 3D objects" /></td>
   </tr>
   <tr>
-    <td align="center"><b>Lab</b>: design experiments</td>
+    <td align="center"><b>Lab</b>: simulation problems, solved step by step</td>
     <td align="center"><b>Kit</b>: the 3D object catalog</td>
   </tr>
 </table>
@@ -77,7 +77,7 @@ Open <http://localhost:5180>. Requires **Node.js 20+** and a browser with WebGL.
 | Route | What |
 | --- | --- |
 | `#/hall` | The live twin. Zone tabs: All, Curb, Check-in, Security, Gates, Arrivals, Parking, Airside. |
-| `#/lab` | Design experiments |
+| `#/lab` | Simulation problems and design experiments |
 | `#/kit` | Catalog of the hand-built 3D objects |
 
 ## Replay real days at MHD
