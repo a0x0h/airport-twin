@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { mergeBufferGeometries } from 'three-stdlib'
 import { palette } from '../../design/tokens'
 import { sky, useNightGlow } from '../../scene/daylight'
-import { glass, glow, surface } from '../materials'
+import { glass, glow, surface, tint } from '../materials'
 import { Ball, Block, Print, Rod, Wheel } from '../primitives'
 import { Person } from './Person'
 
@@ -309,13 +309,23 @@ export function CurbLight() {
 
 /** Saloon car, 4.4 m. Nose toward +Z. `taxi` adds the roof sign and stripe. */
 export function Car({ color = palette.yellow, taxi = false }: { color?: string; taxi?: boolean }) {
+  const paint = surface(color, 'paint')
   return (
     <group>
-      <Block size={[1.76, 0.62, 4.4]} radius={0.16} position={[0, 0.58, 0]} color={color} />
-      <Block size={[1.58, 0.56, 2.25]} radius={0.18} position={[0, 1.15, -0.25]} color={color} />
-      {/* glazing */}
-      <Block size={[1.6, 0.36, 2.0]} radius={0.12} position={[0, 1.19, -0.25]} color={palette.graphite} />
-      <Block size={[1.5, 0.08, 1.9]} radius={0.03} position={[0, 1.43, -0.25]} color={color} />
+      <Block size={[1.76, 0.62, 4.4]} radius={0.16} position={[0, 0.58, 0]} material={paint} />
+      <Block size={[1.58, 0.56, 2.25]} radius={0.18} position={[0, 1.15, -0.25]} material={paint} />
+      {/* glazing: tinted glass that catches the sky, split by the door pillars */}
+      <Block size={[1.6, 0.36, 2.0]} radius={0.12} position={[0, 1.19, -0.25]} material={tint} />
+      <Block size={[1.606, 0.365, 0.08]} radius={0.02} position={[0, 1.19, -0.3]} material={paint} />
+      <Block size={[1.5, 0.08, 1.9]} radius={0.03} position={[0, 1.43, -0.25]} material={paint} />
+      {/* bumpers, grille, sills and mirrors */}
+      <Block size={[1.8, 0.2, 0.2]} radius={0.07} position={[0, 0.4, 2.14]} color={palette.graphite} />
+      <Block size={[1.8, 0.2, 0.2]} radius={0.07} position={[0, 0.4, -2.14]} color={palette.graphite} />
+      <Block size={[0.8, 0.1, 0.03]} radius={0.012} position={[0, 0.62, 2.2]} color={palette.graphite} />
+      <Block size={[1.79, 0.1, 2.3]} radius={0.03} position={[0, 0.33, 0.02]} color={palette.graphite} />
+      {[-0.93, 0.93].map((x) => (
+        <Block key={x} size={[0.16, 0.1, 0.07]} radius={0.03} position={[x, 1.0, 0.72]} material={paint} />
+      ))}
       {taxi && (
         <>
           <Block size={[1.78, 0.1, 4.0]} radius={0.03} position={[0, 0.62, 0]} color="#1f8a4c" />
