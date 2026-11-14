@@ -89,7 +89,7 @@ function Gear({ x, z, h }: { x: number; z: number; h: number }) {
   )
 }
 
-export function Aircraft({ livery = palette.blue, registration = 'SD-ATW', beacon = false }: { livery?: string; registration?: string; beacon?: boolean }) {
+export function Aircraft({ livery = palette.blue, registration = 'EP-MHD', tail = 'MHD', beacon = false }: { livery?: string; registration?: string; /** Airline code painted on the fin. */ tail?: string; beacon?: boolean }) {
   const shell = surface(palette.shell, 'satin')
   const blue = surface(livery, 'satin')
   const windows = useMemo(() => Array.from({ length: 26 }, (_, i) => 9.6 - i * 0.78), [])
@@ -159,11 +159,12 @@ export function Aircraft({ livery = palette.blue, registration = 'SD-ATW', beaco
         draw={(ctx, w, h) => {
           ctx.clearRect(0, 0, w, h)
           ctx.fillStyle = '#ffffff'
-          ctx.font = `800 ${h * 0.5}px Inter, sans-serif`
+          ctx.font = `800 ${h * (tail.length > 2 ? 0.36 : 0.5)}px Inter, sans-serif`
           ctx.textAlign = 'center'
           ctx.textBaseline = 'middle'
-          ctx.fillText('SD', w / 2, h / 2)
+          ctx.fillText(tail, w / 2, h / 2)
         }}
+        deps={[tail]}
       />
       <Print
         width={2.6}

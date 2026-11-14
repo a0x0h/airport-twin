@@ -27,6 +27,7 @@ Every passenger, bag, taxi and parked car is simulated. The same seed replays th
 | --- | --- |
 | **Departures** | Curb drop-off under the MHD canopy, check-in, security lanes with blocking and a shared officer pool. Duty-free, café and prayer-room dwell, then gate holdrooms, boarding and missed flights. |
 | **Arrivals** | Every aircraft unloads before it turns round. Passengers wait at the carousel for their own bag, clear customs, then meet a greeter, take a pick-up car or join the taxi rank (a double-ended queue). |
+| **Airfield** | MHD's two parallel runways, 13L/31R and 13R/31L, at full length with a control tower. Every aircraft lands, taxis in, turns round, pushes back and takes off. |
 | **Parking** | P1, a 96-bay car park used by greeters, drop-off drivers and long-stay travellers. When it is full, the barrier shuts, cars queue on the road and some drivers give up. |
 | **Time** | Day and week clock with time-of-day lighting. Demand follows hourly and weekday profiles. The timeline scrubs back and forth through the run. |
 | **Lab** | Course-style discrete-event simulation problems, each stated with givens and a question, then solved in six steps: conceptual model, input modelling, hand simulation table and event trace (FEL), experiment design, output analysis checked against queueing theory, and a comparison of alternatives that answers the question. Also the full-twin design comparison with paired replications and 95% confidence intervals. |

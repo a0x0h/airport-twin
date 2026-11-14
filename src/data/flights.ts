@@ -1,6 +1,7 @@
 /**
- * Daily departure schedule out of Mashhad. By default it is synthetic (fictional
- * carrier "SD", real MHD routes); a recorded real day can replace it (see
+ * Daily departure schedule out of Mashhad. By default it is synthetic: invented
+ * flight numbers and times, on real MHD routes flown by carriers that serve
+ * the airport. A recorded real day can replace it (see
  * realDay.ts). It repeats every day of the week. Each departure owns an
  * aircraft stand behind the terminal; the aircraft turnaround and the
  * departures board are both derived from it.
@@ -24,6 +25,17 @@ export interface Flight {
 /** Typical routes out of Mashhad (MHD): domestic trunk routes plus pilgrimage and Gulf services. */
 const DESTS = ['Tehran', 'Kish', 'Isfahan', 'Najaf', 'Shiraz', 'Istanbul', 'Tabriz', 'Dubai', 'Ahvaz', 'Baghdad', 'Bandar Abbas', 'Doha', 'Karbala']
 export const GATES = ['A1', 'A2', 'A3']
+/** Carriers that serve Mashhad, by IATA code. The flight numbers built from them are invented. */
+const CARRIERS: [string, string][] = [
+  ['W5', 'Mahan Air'],
+  ['EP', 'Iran Aseman Airlines'],
+  ['IR', 'Iran Air'],
+  ['HH', 'Taban Air'],
+  ['Y9', 'Kish Air'],
+  ['B9', 'Iran Airtour'],
+  ['IV', 'Caspian Airlines'],
+  ['QB', 'Qeshm Air'],
+]
 
 /**
  * Departure times (minutes after midnight) spread like Google's popular times
@@ -35,7 +47,8 @@ const DEP_MIN = [20, 60, 110, 170, 265, 370, 465, 540, 620, 690, 750, 810, 860, 
 const DEP_STAND = [0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 1]
 
 export const SYNTHETIC: Flight[] = DEP_MIN.map((min, i) => ({
-  code: `SD ${String(100 + ((i * 137) % 880)).padStart(3, '0')}`,
+  code: `${CARRIERS[(i * 3) % CARRIERS.length][0]} ${String(1000 + ((i * 137) % 880))}`,
+  airline: CARRIERS[(i * 3) % CARRIERS.length][1],
   dest: DESTS[i % DESTS.length],
   dep: min * 60,
   stand: DEP_STAND[i],
