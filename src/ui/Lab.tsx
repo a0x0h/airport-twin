@@ -6,6 +6,7 @@ import { mmss } from '../sim/hallSim'
 import { Brand, Icon, icons } from './common'
 import { activeDay } from '../data/realDay'
 import { DaySelect } from './DataSource'
+import { Course } from './Course'
 
 /** Series colours, validated as a pair (lightness, chroma, colour-blind separation, contrast). */
 const SERIES: Record<DesignId, string> = { today: '#d4730f', proposed: '#2b5cf0' }
@@ -202,7 +203,7 @@ function Slider({ label, value, min, max, step, unit, onChange }: { label: strin
   )
 }
 
-export function Lab() {
+function DesignExperiment() {
   const [cfg, setCfg] = useState<Config>({ reps: 12, hours: 18, peak: 150, daily: true, seed: 1 })
   const [results, setResults] = useState<Replication[]>([])
   const [ran, setRan] = useState<Config | null>(null)
@@ -264,8 +265,6 @@ export function Lab() {
   }
 
   return (
-    <div className="lab">
-      <Brand route="lab" sub="Design experiment" />
       <div className="lab__grid">
         <aside className="card lab__config">
           <h1 className="insp__title">MHD today vs proposed</h1>
@@ -430,6 +429,28 @@ export function Lab() {
           )}
         </main>
       </div>
+  )
+}
+
+type Mode = 'course' | 'design'
+
+/** The Lab: course-style simulation problems, and the full-twin design comparison. */
+export function Lab() {
+  const [mode, setMode] = useState<Mode>('course')
+  return (
+    <div className="lab">
+      <div className="lab__top">
+        <Brand route="lab" sub={mode === 'course' ? 'Discrete-event simulation' : 'Design experiment'} />
+        <div className="card lab__mode segmented" role="tablist" aria-label="Lab mode">
+          <button role="tab" aria-selected={mode === 'course'} className={mode === 'course' ? 'on' : ''} onClick={() => setMode('course')}>
+            Problems
+          </button>
+          <button role="tab" aria-selected={mode === 'design'} className={mode === 'design' ? 'on' : ''} onClick={() => setMode('design')}>
+            Design comparison
+          </button>
+        </div>
+      </div>
+      {mode === 'course' ? <Course /> : <DesignExperiment />}
     </div>
   )
 }
